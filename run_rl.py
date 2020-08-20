@@ -22,7 +22,7 @@ NUM_SPHERES = 1
 NUM_GOALS = 1
 DT = 0.3
 
-ACTION_BOUND = 5.
+ACTION_BOUND = 5. * DT
 
 T_MAX = 100
 
@@ -74,13 +74,17 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     # Value from SwarmNet
     encodings = swarmnet.graph_conv.output
 
-    value_function = MLP([32, 1], activation=None, name=swarmnet.name_scope() +
-                         '/value_function')
+    value_function = MLP([32, 1], activation=None, name='value_function')
     values = value_function(encodings)  # shape [batch, num_nodes, 1]
 
     actorcritic = tf.keras.Model(inputs=inputs,
                                  outputs=[actions, values],
                                  name='SwarmnetActorcritic')
+
+    # Register non-overlapping `actor` and `value_function` layers for fine control
+    # over trainable_variables
+    actorcritic.actor = swarmnet.dense
+    actorcritic.critic = value_function
 
     return actorcritic
 
@@ -96,6 +100,7 @@ def main():
     edge_types = one_hot(edges, EDGE_TYPES)
 
     reward_all_episodes = []
+    ts = []
     for episode in range(ARGS.epochs):
         state = env.reset()
         state = combine_env_states(*state)
@@ -116,13 +121,16 @@ def main():
                 swarmnet_agent.finish_rollout(
                     [state[np.newaxis, ...], edge_types[np.newaxis, ...]], done)
                 swarmnet_agent.update()
-                print(f'  Break at Step {t}')
                 break
 
+        ts.append(t)
         reward_all_episodes.append(reward_episode)
-        print(
-            f'\r Episode {episode} | Reward {reward_episode:.2f} | Avg. Reward {np.mean(reward_all_episodes[-20:])}', end='')
-    print('')
+
+        print(f'\r Episode {episode} | Reward {reward_episode:8.2f} | ' +
+              f'Avg. R {np.mean(reward_all_episodes[-100:]):8.2f} | Avg. End t = {np.mean(ts[-100:]):3.0f}',
+              end='')
+        if (episode + 1) % 100 == 0:
+            print('')
 
 
 if __name__ == '__main__':

@@ -25,7 +25,7 @@ EPSILON = 0.2
 class PPOAgent:
     def __init__(self, model, action_size, action_bound):
         self.model = model
-        self.action_std = tf.Variable(tf.ones(action_size), name=model.name_scope()+'/action_std')
+        self.action_std = tf.Variable(tf.ones(action_size), name='action_std')
 
         self.rollout_buffer = RolloutBuffer(num_state_inputs=2)
         self.action_bound = action_bound
@@ -34,6 +34,9 @@ class PPOAgent:
         self.critic_optim = tf.keras.optimizers.Adam(LR_C)
 
     def train_actor(self, state, action, adv, old_pi):
+        self.model.actor.trainable = True
+        self.model.critic.trainable = False
+
         with tf.GradientTape() as tape:
             mean, _ = self.model(state)
             std = self.action_std
@@ -53,6 +56,9 @@ class PPOAgent:
         self.actor_optim.apply_gradients(zip(grads, trainables))
 
     def train_critic(self, state, reward):
+        self.model.actor.trainable = False
+        self.model.critic.trainable = True
+
         with tf.GradientTape() as tape:
             _, values = self.model(state)
             loss = tf.keras.losses.mse(reward, values)
