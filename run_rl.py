@@ -8,7 +8,7 @@ import numpy as np
 
 from swarmnet import SwarmNet
 from swarmnet.modules import MLP
-from swarmnet.utils import load_model, one_hot, load_model_params
+from swarmnet.utils import save_model, load_model, one_hot, load_model_params
 from tensorflow.python.ops.array_ops import newaxis
 
 from ppo_agent import PPOAgent
@@ -89,13 +89,8 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     return actorcritic
 
 
-def main():
-    swarmnet_params = load_model_params(ARGS.config)
-
-    actorcritic = get_swarmnet_actorcritic(swarmnet_params, ARGS.log_dir)
-    swarmnet_agent = PPOAgent(actorcritic, NDIM, ACTION_BOUND)
-
-    env = BoidSphereEnv2D(NUM_BOIDS, NUM_SPHERES, NUM_GOALS, DT)
+def train(agent, env):
+    # Form edges as part of inputs to swarmnet.
     edges = system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
     edge_types = one_hot(edges, EDGE_TYPES)
 
@@ -106,21 +101,22 @@ def main():
         state = combine_env_states(*state)
         reward_episode = 0
         for t in range(T_MAX):
-            action = swarmnet_agent.act(
+            action = agent.act(
                 [state[np.newaxis, ...], edge_types[np.newaxis, ...]])
 
-            next_state, reward, done = env.step(action)
+            # Ignore "actions" from goals and obstacles.
+            next_state, reward, done = env.step(action[-NUM_BOIDS:])
             reward = combine_env_rewards(*reward)
 
-            swarmnet_agent.store_transition([state, edge_types], action, reward)
+            agent.store_transition([state, edge_types], action, reward)
 
             state = combine_env_states(*next_state)
             reward_episode += np.sum(reward)
 
-            if len(swarmnet_agent.rollout_buffer) >= ARGS.batch_size or done:
-                swarmnet_agent.finish_rollout(
+            if len(agent.rollout_buffer) >= ARGS.batch_size or done:
+                agent.finish_rollout(
                     [state[np.newaxis, ...], edge_types[np.newaxis, ...]], done)
-                swarmnet_agent.update()
+                agent.update()
                 break
 
         ts.append(t)
@@ -131,6 +127,54 @@ def main():
               end='')
         if (episode + 1) % 100 == 0:
             print('')
+            save_model(agent.model, ARGS.log_dir+'/rl')
+
+
+def test(agent, env):
+    # Form edges as part of inputs to swarmnet.
+    edges = system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
+    edge_types = one_hot(edges, EDGE_TYPES)
+
+    state = env.reset()
+    state = combine_env_states(*state)
+    reward_episode = 0
+    trajectory = [state]
+    for t in range(T_MAX):
+        action = agent.act(
+            [state[np.newaxis, ...], edge_types[np.newaxis, ...]])
+
+        # Ignore "actions" from goals and obstacles.
+        next_state, reward, done = env.step(action[-NUM_BOIDS:])
+        reward = combine_env_rewards(*reward)
+
+        agent.store_transition([state, edge_types], action, reward)
+
+        state = combine_env_states(*next_state)
+        reward_episode += np.sum(reward)
+
+        if len(agent.rollout_buffer) >= ARGS.batch_size:
+            agent.finish_rollout(
+                [state[np.newaxis, ...], edge_types[np.newaxis, ...]], done)
+            agent.update()
+
+        trajectory.append(state)
+
+    print(f' Final Reward {reward_episode}')
+    np.save(os.path.join(ARGS.log_dir, 'test_trajectory.npy'), trajectory)
+
+
+def main():
+    swarmnet_params = load_model_params(ARGS.config)
+
+    actorcritic = get_swarmnet_actorcritic(swarmnet_params, ARGS.log_dir)
+    swarmnet_agent = PPOAgent(actorcritic, NDIM, ACTION_BOUND)
+
+    env = BoidSphereEnv2D(NUM_BOIDS, NUM_SPHERES, NUM_GOALS, DT)
+
+    if ARGS.train:
+        train(swarmnet_agent, env)
+    elif ARGS.test:
+        test(swarmnet_agent, env)
 
 
 if __name__ == '__main__':
