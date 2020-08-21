@@ -60,7 +60,12 @@ class RolloutBuffer:
         return states, actions, rewards_to_go
 
     def clear(self):
-        self.state_buffer.clear()
+        if self._num_state_inputs > 1:
+            for s in self.state_buffer:
+                s.clear()
+        else:
+            self.state_buffer.clear()
+
         self.action_buffer.clear()
         self.reward_buffer.clear()
         self.reward_to_go_buffer.clear()

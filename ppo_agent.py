@@ -4,25 +4,21 @@ import tensorflow_probability as tfp
 from rollout_buffer import RolloutBuffer
 
 
-TRAIN_EPISODES = 1000  # total number of episodes for training
-TEST_EPISODES = 10  # total number of episodes for testing
-MAX_STEPS = 200  # total number of steps for each episode
-GAMMA = 0.9  # reward discount
 LR_A = 0.0001  # learning rate for actor
 LR_C = 0.0002  # learning rate for critic
-BATCH_SIZE = 32  # update batch size
+
 ACTOR_UPDATE_STEPS = 10  # actor update steps
 CRITIC_UPDATE_STEPS = 10  # critic update steps
-
-# ppo-penalty parameters
-KL_TARGET = 0.01
-LAM = 0.5
 
 # ppo-clip parameters
 EPSILON = 0.2
 
 
 class PPOAgent:
+    """
+    Agent with the clipping variant of PPO method.
+    """
+
     def __init__(self, model, action_size, action_bound):
         self.model = model
         self.action_std = tf.Variable(tf.ones(action_size), name='action_std')
@@ -66,19 +62,18 @@ class PPOAgent:
         grads = tape.gradient(loss, self.model.trainable_variables)
         self.critic_optim.apply_gradients(zip(grads, self.model.trainable_variables))
 
-    def update(self):
+    def update(self, actor_steps=ACTOR_UPDATE_STEPS, critic_steps=CRITIC_UPDATE_STEPS):
         states, actions, rewards_to_go = self.rollout_buffer.get_buffer()
-
         if states:
             mean, values = self.model(states)
             std = self.action_std
             pi = tfp.distributions.Normal(mean, std)
             adv = rewards_to_go - values
 
-            for _ in range(ACTOR_UPDATE_STEPS):
+            for _ in range(actor_steps):
                 self.train_actor(states, actions, adv, pi)
 
-            for _ in range(CRITIC_UPDATE_STEPS):
+            for _ in range(critic_steps):
                 self.train_critic(states, rewards_to_go)
 
         self.rollout_buffer.clear()

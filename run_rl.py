@@ -24,7 +24,7 @@ DT = 0.3
 
 ACTION_BOUND = 5. * DT
 
-T_MAX = 100
+T_MAX = 50
 
 
 def system_edges(goals, obstacles, boids):
@@ -89,6 +89,46 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     return actorcritic
 
 
+def pretrain_value_function(agent, env, non_stop=True):
+    # Form edges as part of inputs to swarmnet.
+    edges = system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
+    edge_types = one_hot(edges, EDGE_TYPES)
+
+    for episode in range(ARGS.epochs):
+        state = env.reset()
+        state = combine_env_states(*state)
+
+        reward_episode = 0
+        for t in range(T_MAX):
+            action = agent.act(
+                [state[np.newaxis, ...], edge_types[np.newaxis, ...]])
+
+            # Ignore "actions" from goals and obstacles.
+            next_state, reward, done = env.step(action[-NUM_BOIDS:])
+            reward = combine_env_rewards(*reward)
+
+            agent.store_transition([state, edge_types], action, reward)
+
+            state = combine_env_states(*next_state)
+            reward_episode += np.sum(reward)
+
+            # Overide done if non_stop is True:
+            done &= not non_stop
+
+            if (len(agent.rollout_buffer) >= ARGS.batch_size) or done:
+                agent.finish_rollout(
+                    [state[np.newaxis, ...], edge_types[np.newaxis, ...]], done)
+                agent.update(actor_steps=0)
+            if done:
+                break
+
+        print(f'\r Episode {episode} | Reward {reward_episode:8.2f} | End t = {t} ',
+              end='')
+        if (episode + 1) % 100 == 0:
+            print('')
+            save_model(agent.model, ARGS.log_dir+'/rl')
+
+
 def train(agent, env):
     # Form edges as part of inputs to swarmnet.
     edges = system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
@@ -113,10 +153,11 @@ def train(agent, env):
             state = combine_env_states(*next_state)
             reward_episode += np.sum(reward)
 
-            if len(agent.rollout_buffer) >= ARGS.batch_size or done:
+            if (len(agent.rollout_buffer) >= ARGS.batch_size) or done:
                 agent.finish_rollout(
                     [state[np.newaxis, ...], edge_types[np.newaxis, ...]], done)
                 agent.update()
+            if done:
                 break
 
         ts.append(t)
@@ -156,10 +197,12 @@ def test(agent, env):
             agent.finish_rollout(
                 [state[np.newaxis, ...], edge_types[np.newaxis, ...]], done)
             agent.update()
+        if done:
+            break
 
         trajectory.append(state)
 
-    print(f' Final Reward {reward_episode}')
+    print(f' Final Reward {reward_episode} | End t = {t}')
     np.save(os.path.join(ARGS.log_dir, 'test_trajectory.npy'), trajectory)
 
 
@@ -167,11 +210,14 @@ def main():
     swarmnet_params = load_model_params(ARGS.config)
 
     actorcritic = get_swarmnet_actorcritic(swarmnet_params, ARGS.log_dir)
+    load_model(actorcritic, os.path.join(ARGS.log_dir, 'rl'))
     swarmnet_agent = PPOAgent(actorcritic, NDIM, ACTION_BOUND)
 
     env = BoidSphereEnv2D(NUM_BOIDS, NUM_SPHERES, NUM_GOALS, DT)
 
-    if ARGS.train:
+    if ARGS.pretrain:
+        pretrain_value_function(swarmnet_agent, env)
+    elif ARGS.train:
         train(swarmnet_agent, env)
     elif ARGS.test:
         test(swarmnet_agent, env)
@@ -187,6 +233,8 @@ if __name__ == '__main__':
                         help='number of training steps')
     parser.add_argument('--batch-size', type=int, default=128,
                         help='batch size')
+    parser.add_argument('--pretrain', action='store_true', default=False,
+                        help='turn on pretraining of value function')
     parser.add_argument('--train', action='store_true', default=False,
                         help='turn on training')
     parser.add_argument('--test', action='store_true', default=False,
