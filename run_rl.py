@@ -2,6 +2,7 @@ import os
 import argparse
 import json
 import re
+import datetime
 
 import tensorflow as tf
 import numpy as np
@@ -24,7 +25,7 @@ DT = 0.3
 
 ACTION_BOUND = 5. * DT
 
-T_MAX = 50
+T_MAX = 100
 
 
 def system_edges(goals, obstacles, boids):
@@ -163,6 +164,11 @@ def train(agent, env):
         ts.append(t)
         reward_all_episodes.append(reward_episode)
 
+        # Log to tensorboard
+        with summary_writer.as_default():
+            tf.summary.scalar('Episode Reward', reward_episode, step=episode)
+            tf.summary.scalar('Running average reward', np.sum(reward_all_episodes)/(episode+1), step=episode)
+
         print(f'\r Episode {episode} | Reward {reward_episode:8.2f} | ' +
               f'Avg. R {np.mean(reward_all_episodes[-100:]):8.2f} | Avg. End t = {np.mean(ts[-100:]):3.0f}',
               end='')
@@ -211,7 +217,7 @@ def main():
 
     actorcritic = get_swarmnet_actorcritic(swarmnet_params, ARGS.log_dir)
     load_model(actorcritic, os.path.join(ARGS.log_dir, 'rl'))
-    swarmnet_agent = PPOAgent(actorcritic, NDIM, ACTION_BOUND)
+    swarmnet_agent = PPOAgent(actorcritic, NDIM, ACTION_BOUND, summary_writer)
 
     env = BoidSphereEnv2D(NUM_BOIDS, NUM_SPHERES, NUM_GOALS, DT)
 
@@ -246,5 +252,9 @@ if __name__ == '__main__':
 
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+
+    # Tensorboard logging setup
+    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    summary_writer = tf.summary.create_file_writer(ARGS.log_dir + '/'+ current_time)
 
     main()
