@@ -55,7 +55,6 @@ class PPOAgent:
         self.actor_optim.apply_gradients(zip(grads, trainables))
 
         with self.summary_writer.as_default():
-            print('Actor gradients')
             for weights, grad in zip(self.model.actor.trainable_weights, grads):
                 tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
 
