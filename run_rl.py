@@ -1,5 +1,6 @@
 import os
 import argparse
+import datetime
 
 import tensorflow as tf
 import numpy as np
@@ -21,7 +22,7 @@ DT = 0.3
 
 ACTION_BOUND = 5. * DT
 
-T_MAX = 100
+T_MAX = 50
 
 
 def system_edges(goals, obstacles, boids):

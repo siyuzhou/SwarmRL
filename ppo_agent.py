@@ -55,7 +55,8 @@ class PPOAgent:
         self.actor_optim.apply_gradients(zip(grads, trainables))
 
         with self.summary_writer.as_default():
-            for weights, grad in zip(self.model.actor.trainable_weights, grads):
+            for weights, grad in zip(trainables, grads):
+                tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
                 tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
 
         return loss
@@ -72,7 +73,8 @@ class PPOAgent:
         self.critic_optim.apply_gradients(zip(grads, self.model.trainable_variables))
 
         with self.summary_writer.as_default():
-            for weights, grad in zip(self.model.critic.trainable_weights, grads):
+            for weights, grad in zip(self.model.trainable_variables, grads):
+                tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
                 tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
 
         return loss
@@ -95,7 +97,7 @@ class PPOAgent:
             for _ in range(critic_steps):
                 critic_loss += self.train_critic(states, rewards_to_go)
 
-            critic_loss /= critic_steps
+            critic_loss = tf.reduce_sum(critic_loss)/critic_steps
 
             with self.summary_writer.as_default():
                 tf.summary.scalar('Actor Loss', actor_loss, step=self.steps)
