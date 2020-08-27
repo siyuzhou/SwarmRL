@@ -19,7 +19,7 @@ class PPOAgent:
     Agent with the clipping variant of PPO method.
     """
 
-    def __init__(self, model, action_size, action_bound):
+    def __init__(self, model, action_size, action_bound, summary_writer):
         self.model = model
         self.action_logstd = tf.Variable(tf.ones(action_size), name='action_logstd')
 
@@ -28,6 +28,9 @@ class PPOAgent:
 
         self.actor_optim = tf.keras.optimizers.Adam(LR_A)
         self.critic_optim = tf.keras.optimizers.Adam(LR_C)
+
+        self.summary_writer = summary_writer
+        self.steps = 0
 
     def train_actor(self, state, action, adv, old_pi):
         self.model.actor.trainable = True
@@ -51,6 +54,13 @@ class PPOAgent:
         grads = tape.gradient(loss, trainables)
         self.actor_optim.apply_gradients(zip(grads, trainables))
 
+        with self.summary_writer.as_default():
+            for weights, grad in zip(trainables, grads):
+                tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
+                tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
+
+        return loss
+
     def train_critic(self, state, reward):
         self.model.actor.trainable = False
         self.model.critic.trainable = True
@@ -62,6 +72,13 @@ class PPOAgent:
         grads = tape.gradient(loss, self.model.trainable_variables)
         self.critic_optim.apply_gradients(zip(grads, self.model.trainable_variables))
 
+        with self.summary_writer.as_default():
+            for weights, grad in zip(self.model.trainable_variables, grads):
+                tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
+                tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
+
+        return loss
+
     def update(self, actor_steps=ACTOR_UPDATE_STEPS, critic_steps=CRITIC_UPDATE_STEPS):
         states, actions, rewards_to_go = self.rollout_buffer.get_buffer()
         if states:
@@ -70,15 +87,26 @@ class PPOAgent:
             pi = tfp.distributions.Normal(mean, std)
             adv = rewards_to_go - values
 
+            actor_loss = 0
+            critic_loss = 0
             for _ in range(actor_steps):
-                self.train_actor(states, actions, adv, pi)
+                actor_loss += self.train_actor(states, actions, adv, pi)
+
+            actor_loss /= actor_steps
 
             for _ in range(critic_steps):
-                self.train_critic(states, rewards_to_go)
+                critic_loss += self.train_critic(states, rewards_to_go)
+
+            critic_loss = tf.reduce_sum(critic_loss)/critic_steps
+
+            with self.summary_writer.as_default():
+                tf.summary.scalar('Actor Loss', actor_loss, step=self.steps)
+                tf.summary.scalar('Critic Loss', critic_loss, step=self.steps)
 
         self.rollout_buffer.clear()
 
     def act(self, state, greedy=False):
+        self.steps += 1
         # state has batch dim of 1.
         mean, _ = self.model(state)
         if greedy:
