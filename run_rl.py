@@ -1,11 +1,5 @@
 import os
 import argparse
-<<<<<<< HEAD
-import json
-import re
-import datetime
-=======
->>>>>>> 8114c192e2cc7c097648c306c305023014a71fbe
 
 import tensorflow as tf
 import numpy as np
