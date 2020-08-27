@@ -21,7 +21,7 @@ class PPOAgent:
 
     def __init__(self, model, action_size, action_bound, summary_writer):
         self.model = model
-        self.action_std = tf.Variable(tf.ones(action_size), name='action_std')
+        self.action_logstd = tf.Variable(tf.ones(action_size), name='action_logstd')
 
         self.rollout_buffer = RolloutBuffer(num_state_inputs=2)
         self.action_bound = action_bound
@@ -38,11 +38,11 @@ class PPOAgent:
 
         with tf.GradientTape() as tape:
             mean, _ = self.model(state)
-            std = self.action_std
+            std = tf.exp(self.action_logstd)
 
             pi = tfp.distributions.Normal(mean, std)
 
-            ratio = pi.prob(action) / old_pi.prob(action)
+            ratio = tf.exp(pi.log_prob(action) - old_pi.log_prob(action))
             surr = ratio * adv
 
             loss = -tf.reduce_mean(
@@ -50,7 +50,7 @@ class PPOAgent:
                            tf.clip_by_value(ratio, 1-EPSILON, 1+EPSILON) * adv)
             )
 
-        trainables = self.model.trainable_variables + [self.action_std]
+        trainables = self.model.trainable_variables + [self.action_logstd]
         grads = tape.gradient(loss, trainables)
         self.actor_optim.apply_gradients(zip(grads, trainables))
 
@@ -81,7 +81,7 @@ class PPOAgent:
         states, actions, rewards_to_go = self.rollout_buffer.get_buffer()
         if states:
             mean, values = self.model(states)
-            std = self.action_std
+            std = tf.exp(self.action_logstd)
             pi = tfp.distributions.Normal(mean, std)
             adv = rewards_to_go - values
 
@@ -110,7 +110,7 @@ class PPOAgent:
         if greedy:
             action = mean
         else:
-            std = self.action_std
+            std = tf.exp(self.action_logstd)
             pi = tfp.distributions.Normal(mean, std)
             action = pi.sample()
 

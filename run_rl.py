@@ -1,8 +1,11 @@
 import os
 import argparse
+<<<<<<< HEAD
 import json
 import re
 import datetime
+=======
+>>>>>>> 8114c192e2cc7c097648c306c305023014a71fbe
 
 import tensorflow as tf
 import numpy as np
@@ -10,7 +13,6 @@ import numpy as np
 from swarmnet import SwarmNet
 from swarmnet.modules import MLP
 from swarmnet.utils import save_model, load_model, one_hot, load_model_params
-from tensorflow.python.ops.array_ops import newaxis
 
 from ppo_agent import PPOAgent
 from swarms.rl_extensions.envs import BoidSphereEnv2D
