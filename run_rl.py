@@ -162,7 +162,7 @@ def train(agent, env):
         reward_all_episodes.append(reward_episode)
 
         # Log to tensorboard
-        with summary_writer.as_default():
+        with agent.summary_writer.as_default():
             tf.summary.scalar('Episode Reward', reward_episode, step=episode)
             tf.summary.scalar('Running average reward', np.sum(reward_all_episodes)/(episode+1), step=episode)
 
@@ -204,6 +204,10 @@ def test(agent, env):
 
 
 def main():
+    # Tensorboard logging setup
+    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    summary_writer = tf.summary.create_file_writer(ARGS.log_dir + '/'+ current_time) if ARGS.train else None
+
     swarmnet_params = load_model_params(ARGS.config)
 
     actorcritic = get_swarmnet_actorcritic(swarmnet_params, ARGS.log_dir)
@@ -243,9 +247,5 @@ if __name__ == '__main__':
 
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-
-    # Tensorboard logging setup
-    current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    summary_writer = tf.summary.create_file_writer(ARGS.log_dir + '/'+ current_time)
 
     main()

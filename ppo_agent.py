@@ -19,7 +19,7 @@ class PPOAgent:
     Agent with the clipping variant of PPO method.
     """
 
-    def __init__(self, model, action_size, action_bound, summary_writer):
+    def __init__(self, model, action_size, action_bound, summary_writer=None):
         self.model = model
         self.action_logstd = tf.Variable(tf.ones(action_size), name='action_logstd')
 
@@ -54,10 +54,11 @@ class PPOAgent:
         grads = tape.gradient(loss, trainables)
         self.actor_optim.apply_gradients(zip(grads, trainables))
 
-        with self.summary_writer.as_default():
-            for weights, grad in zip(trainables, grads):
-                tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
-                tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
+        if self.summary_writer is not None:
+            with self.summary_writer.as_default():
+                for weights, grad in zip(trainables, grads):
+                    tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
+                    tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
 
         return loss
 
@@ -72,10 +73,11 @@ class PPOAgent:
         grads = tape.gradient(loss, self.model.trainable_variables)
         self.critic_optim.apply_gradients(zip(grads, self.model.trainable_variables))
 
-        with self.summary_writer.as_default():
-            for weights, grad in zip(self.model.trainable_variables, grads):
-                tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
-                tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
+        if self.summary_writer is not None:
+            with self.summary_writer.as_default():
+                for weights, grad in zip(self.model.trainable_variables, grads):
+                    tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
+                    tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
 
         return loss
 
@@ -99,9 +101,10 @@ class PPOAgent:
 
             critic_loss = tf.reduce_sum(critic_loss)/critic_steps
 
-            with self.summary_writer.as_default():
-                tf.summary.scalar('Actor Loss', actor_loss, step=self.steps)
-                tf.summary.scalar('Critic Loss', critic_loss, step=self.steps)
+            if self.summary_writer is not None:
+                with self.summary_writer.as_default():
+                    tf.summary.scalar('Actor Loss', actor_loss, step=self.steps)
+                    tf.summary.scalar('Critic Loss', critic_loss, step=self.steps)
 
         self.rollout_buffer.clear()
 
