@@ -185,21 +185,15 @@ def test(agent, env):
     trajectory = [state]
     for t in range(T_MAX):
         action = agent.act(
-            [state[np.newaxis, ...], edge_types[np.newaxis, ...]])
+            [state[np.newaxis, ...], edge_types[np.newaxis, ...]], greedy=True)
 
         # Ignore "actions" from goals and obstacles.
         next_state, reward, done = env.step(action[-NUM_BOIDS:])
         reward = combine_env_rewards(*reward)
 
-        agent.store_transition([state, edge_types], action, reward)
-
         state = combine_env_states(*next_state)
         reward_episode += np.sum(reward)
 
-        if len(agent.rollout_buffer) >= ARGS.batch_size:
-            agent.finish_rollout(
-                [state[np.newaxis, ...], edge_types[np.newaxis, ...]], done)
-            agent.update()
         if done:
             break
 
