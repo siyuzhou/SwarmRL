@@ -94,17 +94,16 @@ class PPOAgent:
             for _ in range(actor_steps):
                 actor_loss += self.train_actor(states, actions, adv, pi)
 
-            actor_loss /= actor_steps
-
             for _ in range(critic_steps):
                 critic_loss += self.train_critic(states, rewards_to_go)
 
-            critic_loss = tf.reduce_sum(critic_loss)/critic_steps
-
             if self.summary_writer is not None:
+                critic_loss = tf.reduce_sum(critic_loss)
                 with self.summary_writer.as_default():
-                    tf.summary.scalar('Actor Loss', actor_loss, step=self.steps)
-                    tf.summary.scalar('Critic Loss', critic_loss, step=self.steps)
+                    if actor_steps > 0:
+                        tf.summary.scalar('Actor Loss', actor_loss / actor_steps, step=self.steps)
+                    if critic_steps > 0:
+                        tf.summary.scalar('Critic Loss', critic_loss, step=self.steps)
 
         self.rollout_buffer.clear()
 

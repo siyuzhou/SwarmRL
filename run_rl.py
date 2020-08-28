@@ -87,7 +87,7 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     return actorcritic
 
 
-def pretrain_value_function(agent, env, non_stop=True):
+def pretrain_value_function(agent, env, stop_at_done=False):
     # Form edges as part of inputs to swarmnet.
     edges = system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
     edge_types = one_hot(edges, EDGE_TYPES)
@@ -111,7 +111,7 @@ def pretrain_value_function(agent, env, non_stop=True):
             reward_episode += np.sum(reward)
 
             # Overide done if non_stop is True:
-            done &= not non_stop
+            done &= stop_at_done
 
             if (len(agent.rollout_buffer) >= ARGS.batch_size) or done:
                 agent.finish_rollout(
@@ -206,7 +206,7 @@ def test(agent, env):
 def main():
     # Tensorboard logging setup
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    summary_writer = tf.summary.create_file_writer(ARGS.log_dir + '/'+ current_time) if ARGS.train else None
+    summary_writer = tf.summary.create_file_writer(ARGS.log_dir + '/'+ current_time) if ARGS.train or ARGS.pretrain else None
 
     swarmnet_params = load_model_params(ARGS.config)
 
