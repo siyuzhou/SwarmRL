@@ -53,10 +53,10 @@ def combine_env_states(agent_states, obstacle_states, goal_states):
     return np.expand_dims(state, 0)  # Add time_seg_len dim to state for swarmnet
 
 
-def combine_env_rewards(agent_reward, obstacle_reward, goal_reward):
-    reward = np.concatenate([goal_reward, obstacle_reward, agent_reward], axis=-1)
-    # assert reward.shape == (NUM_GOALS + NUM_SPHERES + NUM_BOIDS,)
-    return reward
+# def combine_env_rewards(agent_reward, obstacle_reward, goal_reward):
+#     reward = np.concatenate([goal_reward, obstacle_reward, agent_reward], axis=-1)
+#     assert reward.shape == (NUM_GOALS + NUM_SPHERES + NUM_BOIDS,)
+#     return reward
 
 
 def get_swarmnet_actorcritic(params, log_dir=None):
@@ -67,13 +67,13 @@ def get_swarmnet_actorcritic(params, log_dir=None):
         load_model(swarmnet, log_dir)
 
     # Action from SwarmNet
-    actions = swarmnet.dense.output[:, :, NDIM:]
+    actions = swarmnet.dense.output[:, -NUM_BOIDS:, NDIM:]
 
     # Value from SwarmNet
-    encodings = swarmnet.graph_conv.output
+    encodings = swarmnet.graph_conv.output[:, -NUM_BOIDS, :]
 
     value_function = MLP([64, 64, 1], activation=None, name='value_function')
-    values = value_function(encodings)  # shape [batch, num_nodes, 1]
+    values = value_function(encodings) # shape [batch, NUM_BOIDS, 1]
 
     actorcritic = tf.keras.Model(inputs=inputs,
                                  outputs=[actions, values],
@@ -105,8 +105,8 @@ def pretrain_value_function(agent, env, stop_at_done=True):
                 [state[np.newaxis, ...], edge_types[np.newaxis, ...]])
 
             # Ignore "actions" from goals and obstacles.
-            next_state, reward, done = env.step(action[-NUM_BOIDS:])
-            reward = combine_env_rewards(*reward)
+            next_state, reward, done = env.step(action)
+            # reward = combine_env_rewards(*reward)
 
             agent.store_transition([state, edge_types], action, reward)
 
@@ -146,8 +146,8 @@ def train(agent, env):
                 [state[np.newaxis, ...], edge_types[np.newaxis, ...]], training=True)
 
             # Ignore "actions" from goals and obstacles.
-            next_state, reward, done = env.step(action[-NUM_BOIDS:])
-            reward = combine_env_rewards(*reward)
+            next_state, reward, done = env.step(action)
+            # reward = combine_env_rewards(*reward)
 
             agent.store_transition([state, edge_types], action, reward, log_prob)
 
@@ -192,8 +192,8 @@ def test(agent, env):
 
         # print(action)
         # Ignore "actions" from goals and obstacles.
-        next_state, reward, done = env.step(action[-NUM_BOIDS:])
-        reward = combine_env_rewards(*reward)
+        next_state, reward, done = env.step(action)
+        # reward = combine_env_rewards(*reward)
 
         state = combine_env_states(*next_state)
         reward_episode += np.sum(reward)
