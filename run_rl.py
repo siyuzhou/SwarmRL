@@ -70,7 +70,7 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     actions = swarmnet.dense.output[:, -NUM_BOIDS:, NDIM:]
 
     # Value from SwarmNet
-    encodings = swarmnet.graph_conv.output[:, -NUM_BOIDS, :]
+    encodings = swarmnet.graph_conv.output[:, -NUM_BOIDS:, :]
 
     value_function = MLP([64, 64, 1], activation=None, name='value_function')
     values = value_function(encodings) # shape [batch, NUM_BOIDS, 1]
