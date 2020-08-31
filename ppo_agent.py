@@ -5,7 +5,7 @@ from rollout_buffer import RolloutBuffer
 
 
 LR_A = 0.0001  # learning rate for actor
-LR_C = 0.0002  # learning rate for critic
+LR_C = 0.0005  # learning rate for critic
 
 ACTOR_UPDATE_STEPS = 10  # actor update steps
 CRITIC_UPDATE_STEPS = 10  # critic update steps
@@ -21,7 +21,7 @@ class PPOAgent:
 
     def __init__(self, model, action_size, action_bound, summary_writer=None):
         self.model = model
-        self.action_logstd = tf.Variable(tf.ones(action_size), name='action_logstd')
+        self.action_logstd = tf.Variable(tf.zeros(action_size), name='action_logstd')
 
         self.rollout_buffer = RolloutBuffer(num_state_inputs=2)
         self.action_bound = action_bound
@@ -32,7 +32,7 @@ class PPOAgent:
         self.summary_writer = summary_writer
         self.steps = 0
 
-    def train_actor(self, state, action, adv, old_pi):
+    def train_actor(self, state, action, adv, old_log_prob):
         self.model.actor.trainable = True
         self.model.critic.trainable = False
 
@@ -42,7 +42,7 @@ class PPOAgent:
 
             pi = tfp.distributions.Normal(mean, std)
 
-            ratio = tf.exp(pi.log_prob(action) - old_pi.log_prob(action))
+            ratio = tf.exp(pi.log_prob(action) - old_log_prob)
             surr = ratio * adv
 
             loss = -tf.reduce_mean(
@@ -52,6 +52,16 @@ class PPOAgent:
 
         trainables = self.model.trainable_variables + [self.action_logstd]
         grads = tape.gradient(loss, trainables)
+        # for v, g in zip(trainables, grads):
+        #     if tf.math.is_nan(g).numpy().any():
+        #         tf.print("NaN encountered for: ", v.name)
+        #         tf.print("Ratio: ", ratio)
+        #         tf.print("Log_prob:", pi.log_prob(action), "Old log_prob: ", old_log_prob)
+        #         tf.print("Log_prob - old_log_prob: ", pi.log_prob(action) - old_log_prob)
+        #         tf.print("Adv: ", adv)
+        #         tf.print("Loss: ", loss)
+        #         raise ValueError('Nan encounterd for grads')
+
         self.actor_optim.apply_gradients(zip(grads, trainables))
 
         if self.summary_writer is not None:
@@ -82,23 +92,21 @@ class PPOAgent:
         return loss
 
     def update(self, actor_steps=ACTOR_UPDATE_STEPS, critic_steps=CRITIC_UPDATE_STEPS):
-        states, actions, rewards_to_go = self.rollout_buffer.get_buffer()
+        states, actions, rewards_to_go, old_log_prob = self.rollout_buffer.get_buffer()
         if states:
-            mean, values = self.model(states)
-            std = tf.exp(self.action_logstd)
-            pi = tfp.distributions.Normal(mean, std)
+            _, values = self.model(states)
             adv = rewards_to_go - values
 
             actor_loss = 0
             critic_loss = 0
             for _ in range(actor_steps):
-                actor_loss += self.train_actor(states, actions, adv, pi)
+                actor_loss += self.train_actor(states, actions, adv, old_log_prob)
 
             for _ in range(critic_steps):
                 critic_loss += self.train_critic(states, rewards_to_go)
 
             if self.summary_writer is not None:
-                critic_loss = tf.reduce_sum(critic_loss)
+                critic_loss = tf.reduce_mean(critic_loss)
                 with self.summary_writer.as_default():
                     if actor_steps > 0:
                         tf.summary.scalar('Actor Loss', actor_loss / actor_steps, step=self.steps)
@@ -107,26 +115,29 @@ class PPOAgent:
 
         self.rollout_buffer.clear()
 
-    def act(self, state, greedy=False):
+    def act(self, state, training=False):
         self.steps += 1
         # state has batch dim of 1.
         mean, _ = self.model(state)
-        if greedy:
+        std = tf.exp(self.action_logstd)
+        pi = tfp.distributions.Normal(mean, std)
+        
+        if not training:
             action = mean
         else:
-            std = tf.exp(self.action_logstd)
-            pi = tfp.distributions.Normal(mean, std)
             action = pi.sample()
 
-        return tf.clip_by_value(action, -self.action_bound, self.action_bound).numpy().squeeze()
+        log_prob = pi.log_prob(action)
+
+        return tf.clip_by_value(action, -self.action_bound, self.action_bound).numpy().squeeze(), log_prob
 
     def value(self, state):
         # state has batch dim of 1.
         _, value = self.model(state)
         return value.numpy().squeeze()
 
-    def store_transition(self, state, action, reward):
-        self.rollout_buffer.add_transition(state, action, reward)
+    def store_transition(self, state, action, reward, log_prob):
+        self.rollout_buffer.add_transition(state, action, reward, log_prob)
 
     def finish_rollout(self, next_state, done):
         next_state_value = self.value(next_state) * (1 - done)

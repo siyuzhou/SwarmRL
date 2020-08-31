@@ -13,6 +13,8 @@ class RolloutBuffer:
             self.state_buffer = []
 
         self.action_buffer = []
+        self.log_prob_buffer = []
+
         self.reward_buffer = []
         self.reward_to_go_buffer = []
 
@@ -22,7 +24,7 @@ class RolloutBuffer:
     def is_full(self):
         return (self.n is not None) and len(self) >= self.n
 
-    def add_transition(self, state, action, reward):
+    def add_transition(self, state, action, reward, log_prob):
         if self.is_full():
             raise BufferFullError('Buffer is full')
 
@@ -33,6 +35,7 @@ class RolloutBuffer:
             self.state_buffer.append(state)
 
         self.action_buffer.append(action)
+        self.log_prob_buffer.append(log_prob)
         self.reward_buffer.append(reward)
 
     def finish_path(self, next_state_value):
@@ -56,8 +59,8 @@ class RolloutBuffer:
 
         actions = np.array(self.action_buffer[:valid_len], dtype=np.float32)
         rewards_to_go = np.expand_dims(self.reward_to_go_buffer[:valid_len], -1).astype(np.float32)
-
-        return states, actions, rewards_to_go
+        old_log_prob = np.vstack(self.log_prob_buffer[:valid_len]).astype(np.float32)
+        return states, actions, rewards_to_go, old_log_prob
 
     def clear(self):
         if self._num_state_inputs > 1:
@@ -67,6 +70,7 @@ class RolloutBuffer:
             self.state_buffer.clear()
 
         self.action_buffer.clear()
+        self.log_prob_buffer.clear()
         self.reward_buffer.clear()
         self.reward_to_go_buffer.clear()
 

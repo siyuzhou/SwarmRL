@@ -72,7 +72,7 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     # Value from SwarmNet
     encodings = swarmnet.graph_conv.output
 
-    value_function = MLP([32, 1], activation=None, name='value_function')
+    value_function = MLP([64, 64, 1], activation=None, name='value_function')
     values = value_function(encodings)  # shape [batch, num_nodes, 1]
 
     actorcritic = tf.keras.Model(inputs=inputs,
@@ -81,16 +81,19 @@ def get_swarmnet_actorcritic(params, log_dir=None):
 
     # Register non-overlapping `actor` and `value_function` layers for fine control
     # over trainable_variables
+    actorcritic.encoding = swarmnet.graph_conv
     actorcritic.actor = swarmnet.dense
     actorcritic.critic = value_function
 
     return actorcritic
 
 
-def pretrain_value_function(agent, env, stop_at_done=False):
+def pretrain_value_function(agent, env, stop_at_done=True):
     # Form edges as part of inputs to swarmnet.
     edges = system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
     edge_types = one_hot(edges, EDGE_TYPES)
+
+    agent.model.encoding.trainable = False
 
     for episode in range(ARGS.epochs):
         state = env.reset()
@@ -98,7 +101,7 @@ def pretrain_value_function(agent, env, stop_at_done=False):
 
         reward_episode = 0
         for t in range(T_MAX):
-            action = agent.act(
+            action, _ = agent.act(
                 [state[np.newaxis, ...], edge_types[np.newaxis, ...]])
 
             # Ignore "actions" from goals and obstacles.
@@ -139,14 +142,14 @@ def train(agent, env):
         state = combine_env_states(*state)
         reward_episode = 0
         for t in range(T_MAX):
-            action = agent.act(
-                [state[np.newaxis, ...], edge_types[np.newaxis, ...]])
+            action, log_prob = agent.act(
+                [state[np.newaxis, ...], edge_types[np.newaxis, ...]], training=True)
 
             # Ignore "actions" from goals and obstacles.
             next_state, reward, done = env.step(action[-NUM_BOIDS:])
             reward = combine_env_rewards(*reward)
 
-            agent.store_transition([state, edge_types], action, reward)
+            agent.store_transition([state, edge_types], action, reward, log_prob)
 
             state = combine_env_states(*next_state)
             reward_episode += np.sum(reward)
@@ -184,9 +187,10 @@ def test(agent, env):
     reward_episode = 0
     trajectory = [state]
     for t in range(T_MAX):
-        action = agent.act(
-            [state[np.newaxis, ...], edge_types[np.newaxis, ...]], greedy=True)
+        action, _ = agent.act(
+            [state[np.newaxis, ...], edge_types[np.newaxis, ...]])
 
+        # print(action)
         # Ignore "actions" from goals and obstacles.
         next_state, reward, done = env.step(action[-NUM_BOIDS:])
         reward = combine_env_rewards(*reward)
@@ -232,7 +236,7 @@ if __name__ == '__main__':
                         help='log directory')
     parser.add_argument('--epochs', type=int, default=1,
                         help='number of training steps')
-    parser.add_argument('--batch-size', type=int, default=128,
+    parser.add_argument('--batch-size', type=int, default=256,
                         help='batch size')
     parser.add_argument('--pretrain', action='store_true', default=False,
                         help='turn on pretraining of value function')
