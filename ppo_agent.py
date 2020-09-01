@@ -21,7 +21,7 @@ class PPOAgent:
 
     def __init__(self, model, action_size, action_bound, summary_writer=None):
         self.model = model
-        self.action_logstd = tf.Variable(tf.zeros(action_size), name='action_logstd')
+        self.action_logstd = tf.Variable(-0.5 * tf.zeros(action_size), name='action_logstd')
 
         self.rollout_buffer = RolloutBuffer(num_state_inputs=2)
         self.action_bound = action_bound
@@ -69,6 +69,10 @@ class PPOAgent:
                 for weights, grad in zip(trainables, grads):
                     tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
                     tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
+                
+                # Log mean
+                tf.summary.histogram('Actions/means', data=mean, step=self.steps)
+                tf.summary.histogram('Actions/stds', data=std, step=self.steps)
 
         return loss
 

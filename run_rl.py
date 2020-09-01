@@ -16,9 +16,12 @@ NDIM = 2
 EDGE_TYPES = 4
 
 NUM_BOIDS = 5
-NUM_SPHERES = 1
-NUM_GOALS = 1
+NUM_SPHERES = 0
+NUM_GOALS = 0
 DT = 0.3
+
+BOID_SIZE = 1
+SPHERE_SIZE = 4
 
 ACTION_BOUND = 5. * DT
 
@@ -50,6 +53,7 @@ def system_edges(goals, obstacles, boids):
 
 def combine_env_states(agent_states, obstacle_states, goal_states):
     state = np.concatenate([goal_states, obstacle_states, agent_states], axis=0)
+    assert state.shape == (NUM_GOALS + NUM_SPHERES + NUM_BOIDS, 2 * NDIM)
     return np.expand_dims(state, 0)  # Add time_seg_len dim to state for swarmnet
 
 
@@ -190,7 +194,7 @@ def test(agent, env):
         action, _ = agent.act(
             [state[np.newaxis, ...], edge_types[np.newaxis, ...]])
 
-        # print(action)
+        print(action)
         # Ignore "actions" from goals and obstacles.
         next_state, reward, done = env.step(action)
         # reward = combine_env_rewards(*reward)
@@ -218,7 +222,7 @@ def main():
     load_model(actorcritic, os.path.join(ARGS.log_dir, 'rl'))
     swarmnet_agent = PPOAgent(actorcritic, NDIM, ACTION_BOUND, summary_writer)
 
-    env = BoidSphereEnv2D(NUM_BOIDS, NUM_SPHERES, NUM_GOALS, DT)
+    env = BoidSphereEnv2D(NUM_BOIDS, NUM_SPHERES, NUM_GOALS, DT, boid_size=BOID_SIZE, sphere_size=SPHERE_SIZE)
 
     if ARGS.pretrain:
         pretrain_value_function(swarmnet_agent, env)
