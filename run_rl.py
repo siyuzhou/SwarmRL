@@ -9,6 +9,7 @@ from swarmnet import SwarmNet
 from swarmnet.modules import MLP
 from swarmnet.utils import save_model, load_model, one_hot, load_model_params
 
+from utils import set_seed
 from ppo_agent import PPOAgent
 from swarms.rl_extensions.envs import BoidSphereEnv2D
 
@@ -248,11 +249,15 @@ if __name__ == '__main__':
                         help='turn on training')
     parser.add_argument('--test', action='store_true', default=False,
                         help='turn on test')
+    parser.add_argument('--seed', type=int, default=1337,
+                        help='set random seed')
+    parser.add_argument
     ARGS = parser.parse_args()
 
     ARGS.config = os.path.expanduser(ARGS.config)
     ARGS.log_dir = os.path.expanduser(ARGS.log_dir)
 
+    set_seed(ARGS.seed)
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
     os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
