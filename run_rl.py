@@ -16,9 +16,9 @@ from swarms.rl_extensions.envs import BoidSphereEnv2D
 NDIM = 2
 EDGE_TYPES = 4
 
-NUM_BOIDS = 5
+NUM_BOIDS = 1
 NUM_SPHERES = 0
-NUM_GOALS = 0
+NUM_GOALS = 1
 DT = 0.3
 
 BOID_SIZE = 1
@@ -26,6 +26,7 @@ SPHERE_SIZE = 4
 
 ACTION_BOUND = 5. * DT
 
+ROLLOUT_STEPS = 8
 T_MAX = 50
 
 
@@ -63,6 +64,10 @@ def combine_env_states(agent_states, obstacle_states, goal_states):
 #     assert reward.shape == (NUM_GOALS + NUM_SPHERES + NUM_BOIDS,)
 #     return reward
 
+def set_init_weights(model):
+    init_weights = [weights / 100 for weights in model.get_weights()]
+    model.set_weights(init_weights)
+
 
 def get_swarmnet_actorcritic(params, log_dir=None):
     swarmnet, inputs = SwarmNet.build_model(
@@ -73,6 +78,8 @@ def get_swarmnet_actorcritic(params, log_dir=None):
 
     # Action from SwarmNet
     actions = swarmnet.dense.output[:, -NUM_BOIDS:, NDIM:]
+    # NOTE: Add tanh for action bound
+    actions = tf.keras.activations.tanh(actions) * ACTION_BOUND
 
     # Value from SwarmNet
     encodings = swarmnet.graph_conv.output[:, -NUM_BOIDS:, :]
@@ -121,9 +128,10 @@ def pretrain_value_function(agent, env, stop_at_done=True):
             # Overide done if non_stop is True:
             done &= stop_at_done
 
-            if (len(agent.rollout_buffer) >= ARGS.batch_size) or done:
+            if (len(agent.rollout_buffer) >= ARGS.batch_size) or done or (t == T_MAX-1):
                 agent.finish_rollout(
                     [state[np.newaxis, ...], edge_types[np.newaxis, ...]], done)
+            if len(agent.rollout_buffer) >= ARGS.batch_size:
                 agent.update(actor_steps=0)
             if done:
                 break
@@ -159,9 +167,11 @@ def train(agent, env):
             state = combine_env_states(*next_state)
             reward_episode += np.sum(reward)
 
-            if (len(agent.rollout_buffer) >= ARGS.batch_size) or done:
+            if (len(agent.rollout_buffer) >= ARGS.batch_size) or done or (t == T_MAX-1):
                 agent.finish_rollout(
                     [state[np.newaxis, ...], edge_types[np.newaxis, ...]], done)
+
+            if len(agent.rollout_buffer) >= ARGS.batch_size:
                 agent.update()
             if done:
                 break
@@ -172,7 +182,6 @@ def train(agent, env):
         # Log to tensorboard
         with agent.summary_writer.as_default():
             tf.summary.scalar('Episode Reward', reward_episode, step=episode)
-            tf.summary.scalar('Running average reward', np.sum(reward_all_episodes)/(episode+1), step=episode)
 
         print(f'\r Episode {episode} | Reward {reward_episode:8.2f} | ' +
               f'Avg. R {np.mean(reward_all_episodes[-100:]):8.2f} | Avg. End t = {np.mean(ts[-100:]):3.0f}',
@@ -189,7 +198,7 @@ def test(agent, env):
 
     state = env.reset()
     state = combine_env_states(*state)
-    reward_episode = 0
+    reward_sequence = []
     trajectory = [state]
     for t in range(T_MAX):
         action, _ = agent.act(
@@ -201,15 +210,15 @@ def test(agent, env):
         # reward = combine_env_rewards(*reward)
 
         state = combine_env_states(*next_state)
-        reward_episode += np.sum(reward)
-
+        
+        reward_sequence.append(reward)
+        trajectory.append(state)
         if done:
             break
 
-        trajectory.append(state)
-
-    print(f' Final Reward {reward_episode} | End t = {t}')
+    print(f' Final Reward {np.sum(reward_sequence)} | End t = {t}')
     np.save(os.path.join(ARGS.log_dir, 'test_trajectory.npy'), trajectory)
+    np.save(os.path.join(ARGS.log_dir, 'reward_sequence.npy'), reward_sequence)
 
 
 def main():
@@ -220,8 +229,17 @@ def main():
     swarmnet_params = load_model_params(ARGS.config)
 
     actorcritic = get_swarmnet_actorcritic(swarmnet_params, ARGS.log_dir)
-    load_model(actorcritic, os.path.join(ARGS.log_dir, 'rl'))
-    swarmnet_agent = PPOAgent(actorcritic, NDIM, ACTION_BOUND, summary_writer)
+
+    # Load weights trained from RL.
+    rl_log = os.path.join(ARGS.log_dir, 'rl')
+    if os.path.exists(rl_log):
+        load_model(actorcritic, rl_log)
+    else:
+        set_init_weights(actorcritic)
+    
+    swarmnet_agent = PPOAgent(actorcritic, NDIM, 
+                             action_bound=None,
+                             summary_writer=summary_writer)
 
     env = BoidSphereEnv2D(NUM_BOIDS, NUM_SPHERES, NUM_GOALS, DT, boid_size=BOID_SIZE, sphere_size=SPHERE_SIZE)
 
@@ -241,7 +259,7 @@ if __name__ == '__main__':
                         help='log directory')
     parser.add_argument('--epochs', type=int, default=1,
                         help='number of training steps')
-    parser.add_argument('--batch-size', type=int, default=256,
+    parser.add_argument('--batch-size', type=int, default=128,
                         help='batch size')
     parser.add_argument('--pretrain', action='store_true', default=False,
                         help='turn on pretraining of value function')
@@ -251,7 +269,6 @@ if __name__ == '__main__':
                         help='turn on test')
     parser.add_argument('--seed', type=int, default=1337,
                         help='set random seed')
-    parser.add_argument
     ARGS = parser.parse_args()
 
     ARGS.config = os.path.expanduser(ARGS.config)
