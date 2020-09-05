@@ -1,7 +1,9 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
+import numpy as np
 
-from rollout_buffer import RolloutBuffer
+import utils
+from rollout_buffer import NStepRolloutBuffer
 
 
 LR_A = 0.0001  # learning rate for actor
@@ -19,11 +21,11 @@ class PPOAgent:
     Agent with the clipping variant of PPO method.
     """
 
-    def __init__(self, model, action_size, action_bound=None, summary_writer=None):
+    def __init__(self, model, action_size, action_bound=None, rollout_steps=1, summary_writer=None):
         self.model = model
         self.action_logstd = tf.Variable(-0.5 * tf.zeros(action_size), name='action_logstd')
 
-        self.rollout_buffer = RolloutBuffer(num_state_inputs=2)
+        self.rollout_buffer = NStepRolloutBuffer(rollout_steps, num_state_inputs=2)
         self.action_bound = action_bound
 
         self.actor_optim = tf.keras.optimizers.Adam(LR_A)
@@ -50,7 +52,7 @@ class PPOAgent:
                            tf.clip_by_value(ratio, 1-EPSILON, 1+EPSILON) * adv)
             )
 
-        trainables = self.model.trainable_variables + [self.action_logstd]
+        trainables = self.model.trainable_variables #+ [self.action_logstd]
         grads = tape.gradient(loss, trainables)
 
         self.actor_optim.apply_gradients(zip(grads, trainables))
@@ -112,6 +114,7 @@ class PPOAgent:
         self.rollout_buffer.clear()
 
     def act(self, state, training=False):
+        state = utils.add_batch_dim(state)
         # state has batch dim of 1.
         mean, _ = self.model(state)
 
@@ -127,15 +130,18 @@ class PPOAgent:
         
         if self.action_bound:
             action = tf.clip_by_value(action, -self.action_bound, self.action_bound)
-        return action.numpy().squeeze(0), log_prob
+        return action.numpy().squeeze(0), log_prob.numpy()
 
     def value(self, state):
+        state = utils.add_batch_dim(state)
         # state has batch dim of 1.
         _, value = self.model(state)
         return value.numpy().squeeze(0)
 
     def store_transition(self, state, action, reward, log_prob):
         self.rollout_buffer.add_transition(state, action, reward, log_prob)
+        if self.rollout_buffer.path_end():
+            self.finish_rollout(state, False)
 
     def finish_rollout(self, next_state, done):
         next_state_value = self.value(next_state) * (1 - done)

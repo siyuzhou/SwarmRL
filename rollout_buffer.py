@@ -1,9 +1,9 @@
 import numpy as np
 
 
-class RolloutBuffer:
-    def __init__(self, n=None, gamma=0.95, num_state_inputs=1):
-        self.n = n
+class NStepRolloutBuffer:
+    def __init__(self, n, gamma=0.95, num_state_inputs=1):
+        self.n = n # Max number of rollout per trajectory
         self.gamma = gamma
         self._num_state_inputs = num_state_inputs
 
@@ -21,12 +21,15 @@ class RolloutBuffer:
     def __len__(self):
         return len(self.action_buffer)
 
-    def is_full(self):
-        return (self.n is not None) and len(self) >= self.n
+    def valid_len(self):
+        return len(self.reward_to_go_buffer)
+
+    def path_end(self):
+        return len(self.reward_buffer) >= self.n
 
     def add_transition(self, state, action, reward, log_prob):
-        if self.is_full():
-            raise BufferFullError('Buffer is full')
+        if self.path_end():
+            raise PathEndError(f'Failed to add transition beyond {self.n} steps')
 
         if self._num_state_inputs > 1:
             for buffer, s in zip(self.state_buffer, state):
@@ -50,7 +53,7 @@ class RolloutBuffer:
         self.reward_buffer.clear()
 
     def get_buffer(self):
-        valid_len = len(self.reward_to_go_buffer)
+        valid_len = self.valid_len()
 
         if self._num_state_inputs > 1:
             states = [np.array(s[:valid_len], dtype=np.float32) for s in self.state_buffer]
@@ -75,6 +78,6 @@ class RolloutBuffer:
         self.reward_to_go_buffer.clear()
 
 
-class BufferFullError(Exception):
+class PathEndError(Exception):
     def __init__(self, message):
         super().__init__(message)

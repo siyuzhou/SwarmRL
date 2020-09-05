@@ -10,7 +10,7 @@
         ],
         "dropout": 0.0,
         "batch_norm": false,
-        "kernel_l2": 0.001
+        "kernel_l2": 0.0001
     },
     "node_decoder": {
         "hidden_units": [
