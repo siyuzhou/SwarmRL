@@ -39,7 +39,7 @@ class PPOAgent:
         self.model.critic.trainable = False
 
         with tf.GradientTape() as tape:
-            mean, _ = self.model(state)
+            mean = self.model(state)[0]
             std = tf.exp(self.action_logstd)
 
             pi = tfp.distributions.Normal(mean, std)
@@ -92,7 +92,7 @@ class PPOAgent:
         self.steps += 1
         states, actions, rewards_to_go, old_log_prob = self.rollout_buffer.get_buffer()
         if states:
-            _, values = self.model(states)
+            values = self.model(states)[1]
             adv = rewards_to_go - values
 
             actor_loss = 0
@@ -116,7 +116,7 @@ class PPOAgent:
     def act(self, state, training=False):
         state = utils.add_batch_dim(state)
         # state has batch dim of 1.
-        mean, _ = self.model(state)
+        mean = self.model(state)[0]
 
         std = tf.exp(self.action_logstd)
         pi = tfp.distributions.Normal(mean, std)
@@ -135,7 +135,7 @@ class PPOAgent:
     def value(self, state):
         state = utils.add_batch_dim(state)
         # state has batch dim of 1.
-        _, value = self.model(state)
+        value = self.model(state)[1]
         return value.numpy().squeeze(0)
 
     def store_transition(self, state, action, reward, log_prob):
