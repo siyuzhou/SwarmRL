@@ -62,7 +62,7 @@ class NStepRolloutBuffer:
 
         actions = np.array(self.action_buffer[:valid_len], dtype=np.float32)
         rewards_to_go = np.expand_dims(self.reward_to_go_buffer[:valid_len], -1).astype(np.float32)
-        old_log_prob = np.vstack(self.log_prob_buffer[:valid_len]).astype(np.float32)
+        old_log_prob = np.array(self.log_prob_buffer[:valid_len], dtype=np.float32)
         return states, actions, rewards_to_go, old_log_prob
 
     def clear(self):

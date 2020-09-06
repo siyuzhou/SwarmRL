@@ -23,7 +23,7 @@ class PPOAgent:
 
     def __init__(self, model, action_size, action_bound=None, rollout_steps=1, summary_writer=None):
         self.model = model
-        self.action_logstd = tf.Variable(-0.5 * tf.zeros(action_size), name='action_logstd')
+        self.action_logstd = tf.Variable(0.5 * tf.ones(action_size), name='action_logstd')
 
         self.rollout_buffer = NStepRolloutBuffer(rollout_steps, num_state_inputs=2)
         self.action_bound = action_bound
@@ -52,7 +52,7 @@ class PPOAgent:
                            tf.clip_by_value(ratio, 1-EPSILON, 1+EPSILON) * adv)
             )
 
-        trainables = self.model.trainable_variables #+ [self.action_logstd]
+        trainables = self.model.trainable_variables + [self.action_logstd]
         grads = tape.gradient(loss, trainables)
 
         self.actor_optim.apply_gradients(zip(grads, trainables))
@@ -130,7 +130,7 @@ class PPOAgent:
         
         if self.action_bound:
             action = tf.clip_by_value(action, -self.action_bound, self.action_bound)
-        return action.numpy().squeeze(0), log_prob.numpy()
+        return action.numpy().squeeze(0), log_prob.numpy().squeeze(0)
 
     def value(self, state):
         state = utils.add_batch_dim(state)
@@ -145,4 +145,5 @@ class PPOAgent:
 
     def finish_rollout(self, next_state, done):
         next_state_value = self.value(next_state) * (1 - done)
+        next_state_value = next_state_value.squeeze(-1)
         self.rollout_buffer.finish_path(next_state_value)
