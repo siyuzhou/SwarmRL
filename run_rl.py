@@ -16,7 +16,7 @@ from swarms.rl_extensions.envs import BoidSphereEnv2D
 NDIM = 2
 EDGE_TYPES = 4
 
-NUM_BOIDS = 1
+NUM_BOIDS = 3
 NUM_SPHERES = 0
 NUM_GOALS = 1
 DT = 0.3
@@ -26,12 +26,12 @@ SPHERE_SIZE = 4
 
 ACTION_BOUND = 5. * DT
 
-ROLLOUT_STEPS = 1
-T_MAX = 50
+ROLLOUT_STEPS = 8
+T_MAX = 100
 
 
 def set_init_weights(model):
-    init_weights = [weights / 100 for weights in model.get_weights()]
+    init_weights = [weights / 10 for weights in model.get_weights()]
     model.set_weights(init_weights)
 
 
@@ -42,7 +42,7 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     if log_dir:
         load_model(swarmnet, log_dir)
 
-    # Action from SwarmNet
+    # Action from SwarmNetW
     actions = swarmnet.dense.output[:, -NUM_BOIDS:, NDIM:]
     # NOTE: Add tanh for action bound
     actions = tf.keras.activations.tanh(actions) * ACTION_BOUND
@@ -62,7 +62,6 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     actorcritic.encoding = swarmnet.graph_conv
     actorcritic.actor = swarmnet.dense
     actorcritic.critic = value_function
-
     return actorcritic
 
 
@@ -115,7 +114,7 @@ def train(agent, env):
     reward_all_episodes = []
     ts = []
     for episode in range(ARGS.epochs):
-        state = env.reset()
+        state = env.reset() # When seed is provided, env is essentially fixed.
         state = utils.combine_env_states(*state)
         reward_episode = 0
         for t in range(T_MAX):
@@ -158,14 +157,18 @@ def test(agent, env):
     edges = utils.system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
     edge_types = one_hot(edges, EDGE_TYPES)
 
-    state = env.reset()
+    state = env.reset(ARGS.seed)
     state = utils.combine_env_states(*state)
     reward_sequence = []
     trajectory = [state]
     for t in range(T_MAX):
         action, _ = agent.act([state, edge_types])
+        value = agent.value([state, edge_types])
 
-        print(action)
+        print(f'Step {t}')
+        print(action, value)
+        # print(test_out)
+
         # Ignore "actions" from goals and obstacles.
         next_state, reward, done = env.step(action)
         # reward = combine_env_rewards(*reward)
@@ -197,6 +200,7 @@ def main():
         load_model(actorcritic, rl_log)
     else:
         set_init_weights(actorcritic)
+        print('Use init weights')
     
     swarmnet_agent = PPOAgent(actorcritic, NDIM, 
                               action_bound=None,
@@ -221,7 +225,7 @@ if __name__ == '__main__':
                         help='log directory')
     parser.add_argument('--epochs', type=int, default=1,
                         help='number of training steps')
-    parser.add_argument('--batch-size', type=int, default=128,
+    parser.add_argument('--batch-size', type=int, default=2048,
                         help='batch size')
     parser.add_argument('--pretrain', action='store_true', default=False,
                         help='turn on pretraining of value function')
