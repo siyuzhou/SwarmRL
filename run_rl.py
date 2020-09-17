@@ -27,6 +27,7 @@ SPHERE_SIZE = 6
 ACTION_BOUND = 5. * DT
 
 ROLLOUT_STEPS = 8
+TRAIN_FREQUENCY = 8 * ROLLOUT_STEPS
 T_MAX = 60
 
 
@@ -72,7 +73,7 @@ def pretrain_value_function(agent, env, stop_at_done=True):
     edge_types = one_hot(edges, EDGE_TYPES)
 
     agent.model.encoding.trainable = False
-
+    step = 0
     for episode in range(ARGS.epochs):
         state = env.reset()
         state = utils.combine_env_states(*state)
@@ -84,22 +85,23 @@ def pretrain_value_function(agent, env, stop_at_done=True):
             # Ignore "actions" from goals and obstacles.
             next_state, reward, done = env.step(action)
             # reward = combine_env_rewards(*reward)
+            next_state = utils.combine_env_states(*next_state)
 
-            agent.store_transition([state, edge_types], action, reward, log_prob)
+            agent.store_transition([state, edge_types], action, reward, log_prob, [next_state, edge_types])
 
-            state = utils.combine_env_states(*next_state)
+            state = next_state
             reward_episode += np.sum(reward)
 
             # Overide done if non_stop is True:
             done &= stop_at_done
-
-            if (len(agent.rollout_buffer) >= ARGS.batch_size) or done or (t == T_MAX-1):
-                agent.finish_rollout([state, edge_types], done)
-            if len(agent.rollout_buffer) >= ARGS.batch_size:
-                agent.update(actor_steps=0)
+            step += 1
+            if done or (t == T_MAX-1):
+                agent.finish_rollout([state, edge_types])
+            if step % TRAIN_FREQUENCY == 0:
+                agent.update(ARGS.batch_size, actor_steps=0)
             if done:
                 break
-
+        
         print(f'\r Episode {episode} | Reward {reward_episode:8.2f} | End t = {t} ',
               end='')
         if (episode + 1) % 100 == 0:
@@ -118,6 +120,7 @@ def train(agent, env):
 
     reward_all_episodes = []
     ts = []
+    step = 0
     for episode in range(ARGS.epochs):
         state = env.reset() # When seed is provided, env is essentially fixed.
         state = utils.combine_env_states(*state)
@@ -128,17 +131,18 @@ def train(agent, env):
             # Ignore "actions" from goals and obstacles.
             next_state, reward, done = env.step(action)
             # reward = combine_env_rewards(*reward)
+            next_state = utils.combine_env_states(*next_state)
+            agent.store_transition([state, edge_types], action, reward, log_prob, [next_state, edge_types])
 
-            agent.store_transition([state, edge_types], action, reward, log_prob)
-
-            state = utils.combine_env_states(*next_state)
+            state = next_state
             reward_episode += np.sum(reward)
 
-            if (len(agent.rollout_buffer) >= ARGS.batch_size) or done or (t == T_MAX-1):
-                agent.finish_rollout([state, edge_types], done)
+            step += 1
+            if done or (t == T_MAX-1):
+                agent.finish_rollout([state, edge_types])
 
-            if len(agent.rollout_buffer) >= ARGS.batch_size:
-                agent.update()
+            if step % TRAIN_FREQUENCY == 0:
+                agent.update(ARGS.batch_size)
             if done:
                 break
 

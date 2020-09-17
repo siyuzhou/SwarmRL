@@ -24,7 +24,7 @@ class PPOAgent:
         self.model = model
         self.action_logstd = tf.Variable(-0.5 * tf.ones(action_size), name='action_logstd')
 
-        self.rollout_buffer = NStepRolloutBuffer(rollout_steps, num_state_inputs=2)
+        self.rollout_buffer = NStepRolloutBuffer(rollout_steps, num_states=2)
         self.action_bound = action_bound
 
         self.actor_optim = tf.keras.optimizers.Adam(LR_A)
@@ -87,30 +87,31 @@ class PPOAgent:
 
         return loss
 
-    def update(self, actor_steps=ACTOR_UPDATE_STEPS, critic_steps=CRITIC_UPDATE_STEPS):
+    def update(self, batch_size, actor_steps=ACTOR_UPDATE_STEPS, critic_steps=CRITIC_UPDATE_STEPS):
         self.steps += 1
-        states, actions, rewards_to_go, old_log_prob = self.rollout_buffer.get_buffer()
-        if states:
-            values = self.model(states)[1]
-            adv = rewards_to_go - values
+        states, actions, rewards_to_go, old_log_prob, next_states = self.rollout_buffer.get_buffer(batch_size)
 
-            actor_loss = 0
-            critic_loss = 0
-            for _ in range(actor_steps):
-                actor_loss += self.train_actor(states, actions, adv, old_log_prob)
+        values = self.model(states)[1]
+        next_values = self.model(next_states)[1]
+        target_values = rewards_to_go + next_values
+        adv = target_values - values
 
-            for _ in range(critic_steps):
-                critic_loss += self.train_critic(states, rewards_to_go)
+        actor_loss = 0
+        for _ in range(actor_steps):
+            actor_loss += self.train_actor(states, actions, adv, old_log_prob)
 
-            if self.summary_writer is not None:
-                critic_loss = tf.reduce_mean(critic_loss)
-                with self.summary_writer.as_default():
-                    if actor_steps > 0:
-                        tf.summary.scalar('Actor Loss', actor_loss / actor_steps, step=self.steps)
-                    if critic_steps > 0:
-                        tf.summary.scalar('Critic Loss', critic_loss, step=self.steps)
+        critic_loss = 0
+        for _ in range(critic_steps):
+            critic_loss += self.train_critic(states, target_values)
 
-        self.rollout_buffer.clear()
+        if self.summary_writer is not None:
+            critic_loss = tf.reduce_mean(critic_loss)
+            with self.summary_writer.as_default():
+                if actor_steps > 0:
+                    tf.summary.scalar('Actor Loss', actor_loss / actor_steps, step=self.steps)
+                if critic_steps > 0:
+                    tf.summary.scalar('Critic Loss', critic_loss, step=self.steps)
+
 
     def act(self, state, training=False):
         state = utils.add_batch_dim(state)
@@ -137,12 +138,10 @@ class PPOAgent:
         value = self.model(state)[1]
         return value.numpy().squeeze(0)
 
-    def store_transition(self, state, action, reward, log_prob):
+    def store_transition(self, state, action, reward, log_prob, next_state):
         self.rollout_buffer.add_transition(state, action, reward, log_prob)
         if self.rollout_buffer.path_end():
-            self.finish_rollout(state, False)
+            self.finish_rollout(next_state)
 
-    def finish_rollout(self, next_state, done):
-        next_state_value = self.value(next_state) * (1 - done)
-        next_state_value = next_state_value.squeeze(-1)
-        self.rollout_buffer.finish_path(next_state_value)
+    def finish_rollout(self, next_state):
+        self.rollout_buffer.finish_path(next_state)
