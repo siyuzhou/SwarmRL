@@ -1,6 +1,5 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-import numpy as np
 
 import utils
 from rollout_buffer import NStepRolloutBuffer
@@ -23,7 +22,7 @@ class PPOAgent:
 
     def __init__(self, model, action_size, action_bound=None, rollout_steps=1, summary_writer=None):
         self.model = model
-        self.action_logstd = tf.Variable(0.5 * tf.ones(action_size), name='action_logstd')
+        self.action_logstd = tf.Variable(-0.5 * tf.ones(action_size), name='action_logstd')
 
         self.rollout_buffer = NStepRolloutBuffer(rollout_steps, num_state_inputs=2)
         self.action_bound = action_bound
@@ -35,7 +34,7 @@ class PPOAgent:
         self.steps = 0
 
     def train_actor(self, state, action, adv, old_log_prob):
-        self.model.actor.trainable = True
+        # self.model.actor.trainable = True
         self.model.critic.trainable = False
 
         with tf.GradientTape() as tape:
@@ -70,7 +69,7 @@ class PPOAgent:
         return loss
 
     def train_critic(self, state, reward):
-        self.model.actor.trainable = False
+        # self.model.actor.trainable = False
         self.model.critic.trainable = True
 
         with tf.GradientTape() as tape:

@@ -16,18 +16,18 @@ from swarms.rl_extensions.envs import BoidSphereEnv2D
 NDIM = 2
 EDGE_TYPES = 4
 
-NUM_BOIDS = 3
+NUM_BOIDS = 5
 NUM_SPHERES = 0
 NUM_GOALS = 1
 DT = 0.3
 
-BOID_SIZE = 1
-SPHERE_SIZE = 4
+BOID_SIZE = 2
+SPHERE_SIZE = 6
 
 ACTION_BOUND = 5. * DT
 
 ROLLOUT_STEPS = 8
-T_MAX = 100
+T_MAX = 60
 
 
 def set_init_weights(model):
@@ -62,6 +62,7 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     actorcritic.encoding = swarmnet.graph_conv
     actorcritic.actor = swarmnet.dense
     actorcritic.critic = value_function
+
     return actorcritic
 
 
@@ -78,13 +79,13 @@ def pretrain_value_function(agent, env, stop_at_done=True):
 
         reward_episode = 0
         for t in range(T_MAX):
-            action, _ = agent.act([state, edge_types])
+            action, log_prob = agent.act([state, edge_types])
 
             # Ignore "actions" from goals and obstacles.
             next_state, reward, done = env.step(action)
             # reward = combine_env_rewards(*reward)
 
-            agent.store_transition([state, edge_types], action, reward)
+            agent.store_transition([state, edge_types], action, reward, log_prob)
 
             state = utils.combine_env_states(*next_state)
             reward_episode += np.sum(reward)
@@ -107,6 +108,10 @@ def pretrain_value_function(agent, env, stop_at_done=True):
 
 
 def train(agent, env):
+    # Fix goal-agent edge function
+    goal_edge = agent.model.encoding.edge_encoder.edge_encoders[0]
+    goal_edge.trainable = False
+
     # Form edges as part of inputs to swarmnet.
     edges = utils.system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
     edge_types = one_hot(edges, EDGE_TYPES)
@@ -147,9 +152,15 @@ def train(agent, env):
         print(f'\r Episode {episode} | Reward {reward_episode:8.2f} | ' +
               f'Avg. R {np.mean(reward_all_episodes[-100:]):8.2f} | Avg. End t = {np.mean(ts[-100:]):3.0f}',
               end='')
-        if (episode + 1) % 100 == 0:
+        if (episode + 1) % 1000 == 0:
             print('')
-            save_model(agent.model, ARGS.log_dir+'/rl')
+            # Hack for preserving the order or weights while saving
+            goal_edge.trainable = True
+            save_model(agent.model, ARGS.log_dir+f'/rl_{episode}')
+            goal_edge.trainable = False
+
+    goal_edge.trainable = True
+    save_model(agent.model, ARGS.log_dir+'/rl')
 
 
 def test(agent, env):
@@ -166,12 +177,11 @@ def test(agent, env):
         value = agent.value([state, edge_types])
 
         print(f'Step {t}')
-        print(action, value)
+        print('Action', action, '\nValue', value)
         # print(test_out)
 
         # Ignore "actions" from goals and obstacles.
         next_state, reward, done = env.step(action)
-        # reward = combine_env_rewards(*reward)
 
         state = utils.combine_env_states(*next_state)
         
@@ -193,6 +203,9 @@ def main():
     swarmnet_params = load_model_params(ARGS.config)
 
     actorcritic = get_swarmnet_actorcritic(swarmnet_params, ARGS.log_dir)
+    # NOTE: lock node_updater layer and final dense layer.
+    actorcritic.encoding.node_decoder.trainable = False
+    actorcritic.actor.trainable = False
 
     # Load weights trained from RL.
     rl_log = os.path.join(ARGS.log_dir, 'rl')
@@ -225,7 +238,7 @@ if __name__ == '__main__':
                         help='log directory')
     parser.add_argument('--epochs', type=int, default=1,
                         help='number of training steps')
-    parser.add_argument('--batch-size', type=int, default=2048,
+    parser.add_argument('--batch-size', type=int, default=4096,
                         help='batch size')
     parser.add_argument('--pretrain', action='store_true', default=False,
                         help='turn on pretraining of value function')
