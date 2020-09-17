@@ -176,6 +176,11 @@ def test(agent, env):
     state = utils.combine_env_states(*state)
     reward_sequence = []
     trajectory = [state]
+
+    if ARGS.gif:
+        import imageio
+        frames = []
+
     for t in range(T_MAX):
         action, _ = agent.act([state, edge_types])
         value = agent.value([state, edge_types])
@@ -186,6 +191,11 @@ def test(agent, env):
 
         # Ignore "actions" from goals and obstacles.
         next_state, reward, done = env.step(action)
+        if ARGS.gif:
+            frames.append(env.render())
+        else:
+            env.render()
+        # reward = combine_env_rewards(*reward)
 
         state = utils.combine_env_states(*next_state)
         
@@ -197,6 +207,9 @@ def test(agent, env):
     print(f' Final Reward {np.sum(reward_sequence)} | End t = {t}')
     np.save(os.path.join(ARGS.log_dir, 'test_trajectory.npy'), trajectory)
     np.save(os.path.join(ARGS.log_dir, 'reward_sequence.npy'), reward_sequence)
+    if ARGS.gif:
+        print('Saving GIF...')
+        imageio.mimsave(os.path.join(ARGS.log_dir, ARGS.gif + '.gif'), frames, fps=6)
 
 
 def main():
@@ -252,6 +265,8 @@ if __name__ == '__main__':
                         help='turn on test')
     parser.add_argument('--seed', type=int, default=1337,
                         help='set random seed')
+    parser.add_argument("--gif", type=str, default=None,
+                        help="store output as gif with the given filename")
     ARGS = parser.parse_args()
 
     ARGS.config = os.path.expanduser(ARGS.config)
