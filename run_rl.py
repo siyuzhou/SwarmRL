@@ -17,7 +17,7 @@ NDIM = 2
 EDGE_TYPES = 4
 
 NUM_BOIDS = 5
-NUM_SPHERES = 0
+NUM_SPHERES = 1
 NUM_GOALS = 1
 DT = 0.3
 
@@ -96,7 +96,7 @@ def pretrain_value_function(agent, env, stop_at_done=True):
             done &= stop_at_done
             step += 1
             if done or (t == T_MAX-1):
-                agent.finish_rollout([state, edge_types])
+                agent.finish_rollout([state, edge_types], done)
             if step % TRAIN_FREQUENCY == 0:
                 agent.update(ARGS.batch_size, actor_steps=0)
             if done:
@@ -132,14 +132,14 @@ def train(agent, env):
             next_state, reward, done = env.step(action)
             # reward = combine_env_rewards(*reward)
             next_state = utils.combine_env_states(*next_state)
-            agent.store_transition([state, edge_types], action, reward, log_prob, [next_state, edge_types])
+            agent.store_transition([state, edge_types], action, reward, log_prob, [next_state, edge_types], done)
 
             state = next_state
             reward_episode += np.sum(reward)
 
             step += 1
             if done or (t == T_MAX-1):
-                agent.finish_rollout([state, edge_types])
+                agent.finish_rollout([state, edge_types], done)
 
             if step % TRAIN_FREQUENCY == 0:
                 agent.update(ARGS.batch_size)
@@ -221,8 +221,8 @@ def main():
 
     actorcritic = get_swarmnet_actorcritic(swarmnet_params, ARGS.log_dir)
     # NOTE: lock node_updater layer and final dense layer.
-    actorcritic.encoding.node_decoder.trainable = False
-    actorcritic.actor.trainable = False
+    # actorcritic.encoding.node_decoder.trainable = False
+    # actorcritic.actor.trainable = False
 
     # Load weights trained from RL.
     rl_log = os.path.join(ARGS.log_dir, 'rl')

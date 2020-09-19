@@ -20,12 +20,13 @@ class PPOAgent:
     Agent with the clipping variant of PPO method.
     """
 
-    def __init__(self, model, action_size, action_bound=None, rollout_steps=1, summary_writer=None):
+    def __init__(self, model, action_size, action_bound=None, rollout_steps=1, gamma=0.95, summary_writer=None):
         self.model = model
         self.action_logstd = tf.Variable(-0.5 * tf.ones(action_size), name='action_logstd')
 
-        self.rollout_buffer = NStepRolloutBuffer(rollout_steps, num_states=2)
+        self.rollout_buffer = NStepRolloutBuffer(rollout_steps, gamma=gamma, num_states=2)
         self.action_bound = action_bound
+        self.gamma = gamma
 
         self.actor_optim = tf.keras.optimizers.Adam(LR_A)
         self.critic_optim = tf.keras.optimizers.Adam(LR_C)
@@ -34,7 +35,7 @@ class PPOAgent:
         self.steps = 0
 
     def train_actor(self, state, action, adv, old_log_prob):
-        # self.model.actor.trainable = True
+        self.model.actor.trainable = True
         self.model.critic.trainable = False
 
         with tf.GradientTape() as tape:
@@ -69,7 +70,7 @@ class PPOAgent:
         return loss
 
     def train_critic(self, state, reward):
-        # self.model.actor.trainable = False
+        self.model.actor.trainable = False
         self.model.critic.trainable = True
 
         with tf.GradientTape() as tape:
@@ -89,12 +90,10 @@ class PPOAgent:
 
     def update(self, batch_size, actor_steps=ACTOR_UPDATE_STEPS, critic_steps=CRITIC_UPDATE_STEPS):
         self.steps += 1
-        states, actions, rewards_to_go, old_log_prob, next_states = self.rollout_buffer.get_buffer(batch_size)
+        states, actions, rewards_to_go, old_log_prob = self.rollout_buffer.get_buffer(batch_size)
 
         values = self.model(states)[1]
-        next_values = self.model(next_states)[1]
-        target_values = rewards_to_go + next_values
-        adv = target_values - values
+        adv = rewards_to_go - values
 
         actor_loss = 0
         for _ in range(actor_steps):
@@ -102,7 +101,7 @@ class PPOAgent:
 
         critic_loss = 0
         for _ in range(critic_steps):
-            critic_loss += self.train_critic(states, target_values)
+            critic_loss += self.train_critic(states, rewards_to_go)
 
         if self.summary_writer is not None:
             critic_loss = tf.reduce_mean(critic_loss)
@@ -138,10 +137,11 @@ class PPOAgent:
         value = self.model(state)[1]
         return value.numpy().squeeze(0)
 
-    def store_transition(self, state, action, reward, log_prob, next_state):
+    def store_transition(self, state, action, reward, log_prob, next_state, done):
         self.rollout_buffer.add_transition(state, action, reward, log_prob)
         if self.rollout_buffer.path_end():
-            self.finish_rollout(next_state)
+            self.finish_rollout(next_state, done)
 
-    def finish_rollout(self, next_state):
-        self.rollout_buffer.finish_path(next_state)
+    def finish_rollout(self, next_state, done):
+        next_value = self.value(next_state).squeeze(-1) * (1 - done)
+        self.rollout_buffer.finish_path(next_value)
