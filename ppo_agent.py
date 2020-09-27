@@ -20,11 +20,11 @@ class PPOAgent:
     Agent with the clipping variant of PPO method.
     """
 
-    def __init__(self, model, action_size, action_bound=None, rollout_steps=1, gamma=0.95, summary_writer=None):
+    def __init__(self, model, action_size, action_bound=None, rollout_steps=1, memory_capacity=1e5, gamma=0.95, summary_writer=None, mode=0):
         self.model = model
         self.action_logstd = tf.Variable(-0.5 * tf.ones(action_size), name='action_logstd')
 
-        self.rollout_buffer = NStepRolloutBuffer(rollout_steps, gamma=gamma, num_states=2)
+        self.rollout_buffer = NStepRolloutBuffer(rollout_steps, memory_capacity, gamma=gamma, num_states=2)
         self.action_bound = action_bound
         self.gamma = gamma
 
@@ -33,9 +33,11 @@ class PPOAgent:
 
         self.summary_writer = summary_writer
         self.steps = 0
+        self.mode = mode
 
     def train_actor(self, state, action, adv, old_log_prob):
-        self.model.actor.trainable = True
+        if self.mode < 2:
+            self.model.actor.trainable = True
         self.model.critic.trainable = False
 
         with tf.GradientTape() as tape:

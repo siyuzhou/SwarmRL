@@ -21,13 +21,13 @@ NUM_SPHERES = 1
 NUM_GOALS = 1
 DT = 0.3
 
-BOID_SIZE = 2
+BOID_SIZE = 1
 SPHERE_SIZE = 6
 
 ACTION_BOUND = 5. * DT
 
 ROLLOUT_STEPS = 8
-TRAIN_FREQUENCY = 8 * ROLLOUT_STEPS
+TRAIN_FREQUENCY = 4096
 T_MAX = 60
 
 
@@ -44,9 +44,7 @@ def get_swarmnet_actorcritic(params, log_dir=None):
         load_model(swarmnet, log_dir)
 
     # Action from SwarmNetW
-    actions = swarmnet.dense.output[:, -NUM_BOIDS:, NDIM:]
-    # NOTE: Add tanh for action bound
-    actions = tf.keras.activations.tanh(actions) * ACTION_BOUND
+    actions = swarmnet.out_layer.output[:, -NUM_BOIDS:, NDIM:]
 
     # Value from SwarmNet
     encodings = swarmnet.graph_conv.output[:, -NUM_BOIDS:, :]
@@ -61,7 +59,7 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     # Register non-overlapping `actor` and `value_function` layers for fine control
     # over trainable_variables
     actorcritic.encoding = swarmnet.graph_conv
-    actorcritic.actor = swarmnet.dense
+    actorcritic.actor = swarmnet.out_layer
     actorcritic.critic = value_function
 
     return actorcritic
@@ -87,7 +85,7 @@ def pretrain_value_function(agent, env, stop_at_done=True):
             # reward = combine_env_rewards(*reward)
             next_state = utils.combine_env_states(*next_state)
 
-            agent.store_transition([state, edge_types], action, reward, log_prob, [next_state, edge_types])
+            agent.store_transition([state, edge_types], action, reward, log_prob, [next_state, edge_types], done)
 
             state = next_state
             reward_episode += np.sum(reward)
@@ -112,7 +110,8 @@ def pretrain_value_function(agent, env, stop_at_done=True):
 def train(agent, env):
     # Fix goal-agent edge function
     goal_edge = agent.model.encoding.edge_encoder.edge_encoders[0]
-    goal_edge.trainable = False
+    if ARGS.mode > 0:
+        goal_edge.trainable = False
 
     # Form edges as part of inputs to swarmnet.
     edges = utils.system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
@@ -152,6 +151,7 @@ def train(agent, env):
         # Log to tensorboard
         with agent.summary_writer.as_default():
             tf.summary.scalar('Episode Reward', reward_episode, step=episode)
+            tf.summary.scalar('Terminal Timestep', t, step=episode)
 
         print(f'\r Episode {episode} | Reward {reward_episode:8.2f} | ' +
               f'Avg. R {np.mean(reward_all_episodes[-100:]):8.2f} | Avg. End t = {np.mean(ts[-100:]):3.0f}',
@@ -160,11 +160,16 @@ def train(agent, env):
             print('')
             # Hack for preserving the order or weights while saving
             goal_edge.trainable = True
+            save_model(agent.model, ARGS.log_dir+'/rl')
             save_model(agent.model, ARGS.log_dir+f'/rl_{episode}')
-            goal_edge.trainable = False
+            if ARGS.mode > 0:
+                goal_edge.trainable = False
+            np.save(ARGS.log_dir+'/rl/train_rewards.npy', reward_all_episodes)
+            np.save(ARGS.log_dir+'/rl/terminal_ts.npy', ts)
 
     goal_edge.trainable = True
     save_model(agent.model, ARGS.log_dir+'/rl')
+    
 
 
 def test(agent, env):
@@ -221,8 +226,9 @@ def main():
 
     actorcritic = get_swarmnet_actorcritic(swarmnet_params, ARGS.log_dir)
     # NOTE: lock node_updater layer and final dense layer.
-    # actorcritic.encoding.node_decoder.trainable = False
-    # actorcritic.actor.trainable = False
+    if ARGS.mode == 2:
+        actorcritic.encoding.node_decoder.trainable = False
+        actorcritic.actor.trainable = False
 
     # Load weights trained from RL.
     rl_log = os.path.join(ARGS.log_dir, 'rl')
@@ -235,7 +241,9 @@ def main():
     swarmnet_agent = PPOAgent(actorcritic, NDIM, 
                               action_bound=None,
                               rollout_steps=ROLLOUT_STEPS,
-                              summary_writer=summary_writer)
+                              memory_capacity=4096,
+                              summary_writer=summary_writer,
+                              mode=ARGS.mode)
 
     env = BoidSphereEnv2D(NUM_BOIDS, NUM_SPHERES, NUM_GOALS, DT, boid_size=BOID_SIZE, sphere_size=SPHERE_SIZE)
 
@@ -267,6 +275,7 @@ if __name__ == '__main__':
                         help='set random seed')
     parser.add_argument("--gif", type=str, default=None,
                         help="store output as gif with the given filename")
+    parser.add_argument("--mode", type=int, default=0)
     ARGS = parser.parse_args()
 
     ARGS.config = os.path.expanduser(ARGS.config)
