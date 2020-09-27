@@ -14,12 +14,13 @@
     },
     "node_decoder": {
         "hidden_units": [
-            128,
-            128
+            64,
+            64
         ],
         "dropout": 0.0,
         "batch_norm": false,
         "kernel_l2": 0.0001
     },
-    "learning_rate": 0.0001
+    "output_bound": [5, 5, 1.5, 1.5],
+    "learning_rate": 0.001
 }
