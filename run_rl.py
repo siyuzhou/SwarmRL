@@ -196,7 +196,7 @@ def test(agent, env):
 
         # Ignore "actions" from goals and obstacles.
         next_state, reward, done = env.step(action)
-        print(next_state.shape)
+
         if ARGS.gif:
             frames.append(env.render())
         else:
@@ -207,8 +207,7 @@ def test(agent, env):
         
         reward_sequence.append(reward)
         trajectory.append(state)
-        print(state.shape)
-        raise
+
         if done:
             break
 
