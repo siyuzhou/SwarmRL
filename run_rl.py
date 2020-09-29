@@ -21,8 +21,8 @@ NUM_SPHERES = 1
 NUM_GOALS = 1
 DT = 0.3
 
-BOID_SIZE = 1
-SPHERE_SIZE = 6
+BOID_SIZE = 2
+SPHERE_SIZE = 7
 
 ACTION_BOUND = 5. * DT
 
@@ -186,16 +186,17 @@ def test(agent, env):
         import imageio
         frames = []
 
-    for t in range(T_MAX):
+    for t in range(ARGS.steps):
         action, _ = agent.act([state, edge_types])
         value = agent.value([state, edge_types])
 
         print(f'Step {t}')
-        print('Action', action, '\nValue', value)
+        print('Action', action)
         # print(test_out)
 
         # Ignore "actions" from goals and obstacles.
         next_state, reward, done = env.step(action)
+        print(next_state.shape)
         if ARGS.gif:
             frames.append(env.render())
         else:
@@ -206,6 +207,8 @@ def test(agent, env):
         
         reward_sequence.append(reward)
         trajectory.append(state)
+        print(state.shape)
+        raise
         if done:
             break
 
@@ -276,6 +279,8 @@ if __name__ == '__main__':
     parser.add_argument("--gif", type=str, default=None,
                         help="store output as gif with the given filename")
     parser.add_argument("--mode", type=int, default=0)
+    parser.add_argument("--steps", type=int, default=T_MAX,
+                        help='max timestep per episode')
     ARGS = parser.parse_args()
 
     ARGS.config = os.path.expanduser(ARGS.config)
