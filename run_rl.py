@@ -31,6 +31,12 @@ TRAIN_FREQUENCY = 4096
 T_MAX = 60
 
 
+
+def set_init_weights(model):
+    init_weights = [weights / 10 for weights in model.get_weights()]
+    model.set_weights(init_weights)
+
+
 def get_swarmnet_actorcritic(params, log_dir=None):
     swarmnet, inputs = SwarmNet.build_model(
         NUM_GOALS+NUM_SPHERES+NUM_BOIDS, 2*NDIM, params, return_inputs=True)
@@ -231,6 +237,9 @@ def main():
     rl_log = os.path.join(ARGS.log_dir, 'rl')
     if os.path.exists(rl_log):
         load_model(actorcritic, rl_log)
+    elif not os.path.exists(os.path.join(ARGS.log_dir, 'weights.h5')):
+        print('Re-initialize weights.')
+        set_init_weights(actorcritic)
     
     swarmnet_agent = PPOAgent(actorcritic, NDIM, 
                               action_bound=None,
