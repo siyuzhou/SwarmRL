@@ -1,5 +1,6 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
+import numpy as np
 
 import utils
 from rollout_buffer import NStepRolloutBuffer
@@ -24,7 +25,8 @@ class PPOAgent:
         self.model = model
         self.action_logstd = tf.Variable(-0.5 * tf.ones(action_size), name='action_logstd')
 
-        self.rollout_buffer = NStepRolloutBuffer(rollout_steps, memory_capacity, gamma=gamma, num_states=2)
+        self.rollout_buffer = NStepRolloutBuffer(
+            rollout_steps, memory_capacity, gamma=gamma, num_states=2)
         self.action_bound = action_bound
         self.gamma = gamma
 
@@ -62,9 +64,11 @@ class PPOAgent:
         if self.summary_writer is not None:
             with self.summary_writer.as_default():
                 for weights, grad in zip(trainables, grads):
-                    tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
-                    tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
-                
+                    tf.summary.histogram(weights.name.replace(':', '_'),
+                                         data=weights, step=self.steps)
+                    tf.summary.histogram(weights.name.replace(':', '_') +
+                                         '_grads', data=grad, step=self.steps)
+
                 # Log mean
                 tf.summary.histogram('Actions/means', data=mean, step=self.steps)
                 tf.summary.histogram('Actions/stds', data=std, step=self.steps)
@@ -85,21 +89,24 @@ class PPOAgent:
         if self.summary_writer is not None:
             with self.summary_writer.as_default():
                 for weights, grad in zip(self.model.trainable_variables, grads):
-                    tf.summary.histogram(weights.name.replace(':', '_'), data=weights, step=self.steps)
-                    tf.summary.histogram(weights.name.replace(':', '_') + '_grads', data=grad, step=self.steps)
+                    tf.summary.histogram(weights.name.replace(':', '_'),
+                                         data=weights, step=self.steps)
+                    tf.summary.histogram(weights.name.replace(':', '_') +
+                                         '_grads', data=grad, step=self.steps)
 
         return loss
 
     def update(self, batch_size, actor_steps=ACTOR_UPDATE_STEPS, critic_steps=CRITIC_UPDATE_STEPS):
         self.steps += 1
-        states, actions, rewards_to_go, old_log_prob = self.rollout_buffer.get_buffer(batch_size)
+        states, actions, rewards_to_go, old_log_probs = self.rollout_buffer.get_buffer(
+            batch_size)
 
         values = self.model(states)[1]
-        adv = rewards_to_go - values
+        adv = rewards_to_go - values  # Shape [batch, MAX_NUM_NODES, 1]
 
         actor_loss = 0
         for _ in range(actor_steps):
-            actor_loss += self.train_actor(states, actions, adv, old_log_prob)
+            actor_loss += self.train_actor(states, actions, adv, old_log_probs)
 
         critic_loss = 0
         for _ in range(critic_steps):
@@ -113,37 +120,36 @@ class PPOAgent:
                 if critic_steps > 0:
                     tf.summary.scalar('Critic Loss', critic_loss, step=self.steps)
 
-
-    def act(self, state, training=False):
+    def act(self, state, mask, training=False):
         state = utils.add_batch_dim(state)
         # state has batch dim of 1.
         mean = self.model(state)[0]
 
         std = tf.exp(self.action_logstd)
         pi = tfp.distributions.Normal(mean, std)
-        
+
         if not training:
             action = mean
         else:
             action = pi.sample()
 
         log_prob = pi.log_prob(action)
-        
+
         if self.action_bound:
             action = tf.clip_by_value(action, -self.action_bound, self.action_bound)
-        return action.numpy().squeeze(0), log_prob.numpy().squeeze(0)
+        return action.numpy().squeeze(0) * mask, log_prob.numpy().squeeze(0) * mask
 
-    def value(self, state):
+    def value(self, state, mask):
         state = utils.add_batch_dim(state)
         # state has batch dim of 1.
         value = self.model(state)[1]
-        return value.numpy().squeeze(0)
+        return value.numpy().squeeze(0) * mask
 
-    def store_transition(self, state, action, reward, log_prob, next_state, done):
+    def store_transition(self, state, action, reward, log_prob, next_state, done, mask):
         self.rollout_buffer.add_transition(state, action, reward, log_prob)
         if self.rollout_buffer.path_end():
-            self.finish_rollout(next_state, done)
+            self.finish_rollout(next_state, done, mask)
 
-    def finish_rollout(self, next_state, done):
-        next_value = self.value(next_state).squeeze(-1) * (1 - done)
+    def finish_rollout(self, next_state, done, mask):
+        next_value = self.value(next_state, mask).squeeze(-1) * (1 - done)
         self.rollout_buffer.finish_path(next_value)

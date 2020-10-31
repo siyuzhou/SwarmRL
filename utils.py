@@ -2,6 +2,7 @@ import random
 import numpy as np
 import tensorflow as tf
 
+
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
@@ -46,7 +47,14 @@ def combine_env_states(agent_states, obstacle_states, goal_states):
     return np.expand_dims(state, 0)  # Add time_seg_len dim to state for swarmnet
 
 
-# def combine_env_rewards(agent_reward, obstacle_reward, goal_reward):
-#     reward = np.concatenate([goal_reward, obstacle_reward, agent_reward], axis=-1)
-#     assert reward.shape == (NUM_GOALS + NUM_SPHERES + NUM_BOIDS,)
-#     return reward
+def pad_data(data, pad_to_size, dims):
+    # Pad 0s before the goal
+    pad_shape = [(pad_to_size - s if i in dims else 0, 0) for i, s in enumerate(data.shape)]
+    padded_data = np.pad(data, pad_shape, mode='constant', constant_values=0)
+    return padded_data
+
+
+def get_mask(size, max_size):
+    mask = np.zeros(max_size)
+    mask[-size:] = 1
+    return np.expand_dims(mask, -1)
