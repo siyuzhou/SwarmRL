@@ -8,9 +8,10 @@ import numpy as np
 from swarmnet import SwarmNet
 from swarmnet.modules import MLP
 from swarmnet.utils import save_model, load_model, one_hot, load_model_params
+from tensorflow.python.keras.backend import update
 
 import utils
-from ppo_agent import PPOAgent
+from ppo_agent import ACTOR_UPDATE_STEPS, PPOAgent
 from swarms.rl_extensions.envs import BoidSphereEnv2D
 
 NDIM = 2
@@ -34,17 +35,14 @@ TRAIN_FREQUENCY = 4096
 T_MAX = 60
 
 
-# def set_init_weights(model):
-#     init_weights = [weights / 10 for weights in model.get_weights()]
-#     model.set_weights(init_weights)
+def set_init_weights(model):
+    init_weights = [weights / 10 for weights in model.get_weights()]
+    model.set_weights(init_weights)
 
 
-def get_swarmnet_actorcritic(params, log_dir=None):
+def get_swarmnet_actorcritic(params, log_dir):
     swarmnet, inputs = SwarmNet.build_model(
-        MAX_NUM_NODES, 2*NDIM, params, return_inputs=True)
-
-    if log_dir:
-        load_model(swarmnet, log_dir)
+        MAX_NUM_NODES, 2 * NDIM, params, return_inputs=True)
 
     # Action from SwarmNetW
     actions = swarmnet.out_layer.output[:, :, NDIM:]
@@ -65,53 +63,13 @@ def get_swarmnet_actorcritic(params, log_dir=None):
     actorcritic.actor = swarmnet.out_layer
     actorcritic.critic = value_function
 
+    set_init_weights(actorcritic)
+    load_model(swarmnet, log_dir)
+
     return actorcritic
 
 
-def pretrain_value_function(agent, env, stop_at_done=True):
-    # Form edges as part of inputs to swarmnet.
-    edges = utils.system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
-    edge_types = one_hot(edges, EDGE_TYPES)
-
-    agent.model.encoding.trainable = False
-    step = 0
-    for episode in range(ARGS.epochs):
-        state = env.reset()
-        state = utils.combine_env_states(*state)
-
-        reward_episode = 0
-        for t in range(T_MAX):
-            action, log_prob = agent.act([state, edge_types])
-
-            # Ignore "actions" from goals and obstacles.
-            next_state, reward, done = env.step(action)
-            # reward = combine_env_rewards(*reward)
-            next_state = utils.combine_env_states(*next_state)
-
-            agent.store_transition([state, edge_types], action, reward,
-                                   log_prob, [next_state, edge_types], done)
-
-            state = next_state
-            reward_episode += np.sum(reward)
-
-            # Overide done if non_stop is True:
-            done &= stop_at_done
-            step += 1
-            if done or (t == T_MAX-1):
-                agent.finish_rollout([state, edge_types], done)
-            if step % TRAIN_FREQUENCY == 0:
-                agent.update(ARGS.batch_size, actor_steps=0)
-            if done:
-                break
-
-        print(f'\r Episode {episode} | Reward {reward_episode:8.2f} | End t = {t} ',
-              end='')
-        if (episode + 1) % 100 == 0:
-            print('')
-            save_model(agent.model, ARGS.log_dir+'/rl')
-
-
-def train(agent):
+def train(agent, value_only=False):
     # Fix goal-agent edge function
     goal_edge = agent.model.encoding.edge_encoder.edge_encoders[0]
     if ARGS.mode > 0:
@@ -122,8 +80,8 @@ def train(agent):
     step = 0
     for episode in range(ARGS.epochs):
         # Initialize num_boids and num_spheres.
-        num_boids = np.random.randint(MIN_NUM_BOIDS, MAX_NUM_BOIDS+1)
-        num_spheres = np.random.randint(MIN_NUM_SPHERES, MAX_NUM_SPHERES+1)
+        num_boids = np.random.randint(MIN_NUM_BOIDS, MAX_NUM_BOIDS + 1)
+        num_spheres = np.random.randint(MIN_NUM_SPHERES, MAX_NUM_SPHERES + 1)
         # Create mask.
         mask = utils.get_mask(num_boids, MAX_NUM_NODES)
         # Form edges as part of inputs to swarmnet.
@@ -158,11 +116,11 @@ def train(agent):
             reward_episode += np.sum(reward)
 
             step += 1
-            if done or (t == T_MAX-1):
+            if done or (t == T_MAX - 1):
                 agent.finish_rollout([padded_state, padded_edge_types], done, mask)
 
             if step % TRAIN_FREQUENCY == 0:
-                agent.update(ARGS.batch_size)
+                agent.update(ARGS.batch_size, actor_steps=int(not value_only))
             if done:
                 break
 
@@ -183,20 +141,26 @@ def train(agent):
             print('')
             # Hack for preserving the order or weights while saving
             goal_edge.trainable = True
-            save_model(agent.model, ARGS.log_dir+'/rl')
-            save_model(agent.model, ARGS.log_dir+f'/rl_{episode}')
+            save_model(agent.model, ARGS.log_dir + '/rl')
+            save_model(agent.model, ARGS.log_dir + f'/rl_{episode}')
             if ARGS.mode > 0:
                 goal_edge.trainable = False
-            np.save(ARGS.log_dir+'/rl/train_rewards.npy', reward_all_episodes)
-            np.save(ARGS.log_dir+'/rl/terminal_ts.npy', ts)
+            np.save(ARGS.log_dir + '/rl/train_rewards.npy', reward_all_episodes)
+            np.save(ARGS.log_dir + '/rl/terminal_ts.npy', ts)
 
     goal_edge.trainable = True
-    save_model(agent.model, ARGS.log_dir+'/rl')
+    save_model(agent.model, ARGS.log_dir + '/rl')
 
 
-def test(agent, env):
+def test(agent):
     # Form edges as part of inputs to swarmnet.
-    edges = utils.system_edges(NUM_GOALS, NUM_SPHERES, NUM_BOIDS)
+    num_boids = np.random.randint(MIN_NUM_BOIDS, MAX_NUM_BOIDS + 1)
+    num_spheres = np.random.randint(MIN_NUM_SPHERES, MAX_NUM_SPHERES + 1)
+
+    env = BoidSphereEnv2D(num_boids, num_spheres, NUM_GOALS, DT,
+                          boid_size=BOID_SIZE, sphere_size=SPHERE_SIZE)
+
+    edges = utils.system_edges(NUM_GOALS, num_spheres, num_boids)
     edge_types = one_hot(edges, EDGE_TYPES)
 
     state = env.reset(ARGS.seed)
@@ -259,9 +223,6 @@ def main():
     rl_log = os.path.join(ARGS.log_dir, 'rl')
     if os.path.exists(rl_log):
         load_model(actorcritic, rl_log)
-    # elif not os.path.exists(os.path.join(ARGS.log_dir, 'weights.h5')):
-    #     print('Re-initialize weights.')
-    #     set_init_weights(actorcritic)
 
     swarmnet_agent = PPOAgent(actorcritic, NDIM,
                               action_bound=None,
@@ -271,7 +232,7 @@ def main():
                               mode=ARGS.mode)
 
     if ARGS.pretrain:
-        pretrain_value_function(swarmnet_agent)
+        train(swarmnet_agent, value_only=True)
     elif ARGS.train:
         train(swarmnet_agent)
     elif ARGS.test:

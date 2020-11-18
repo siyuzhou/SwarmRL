@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.python.keras.backend import log
 import tensorflow_probability as tfp
 import numpy as np
 
@@ -53,7 +54,7 @@ class PPOAgent:
 
             loss = -tf.reduce_mean(
                 tf.minimum(surr,
-                           tf.clip_by_value(ratio, 1-EPSILON, 1+EPSILON) * adv)
+                           tf.clip_by_value(ratio, 1 - EPSILON, 1 + EPSILON) * adv)
             )
 
         trainables = self.model.trainable_variables + [self.action_logstd]
@@ -120,9 +121,18 @@ class PPOAgent:
                 if critic_steps > 0:
                     tf.summary.scalar('Critic Loss', critic_loss, step=self.steps)
 
-    def act(self, state, mask, training=False):
+    def act(self, state, mask=None, training=False):
         state = utils.add_batch_dim(state)
+        if mask is not None:
+            mask = utils.add_batch_dim(mask)
         # state has batch dim of 1.
+        action, log_prob = self.act_batch(state, mask, training)
+
+        action, log_prob = action.numpy().squeeze(0), log_prob.numpy().squeeze(0)
+
+        return action, log_prob
+
+    def act_batch(self, state, mask=None, training=False):
         mean = self.model(state)[0]
 
         std = tf.exp(self.action_logstd)
@@ -137,7 +147,12 @@ class PPOAgent:
 
         if self.action_bound:
             action = tf.clip_by_value(action, -self.action_bound, self.action_bound)
-        return action.numpy().squeeze(0) * mask, log_prob.numpy().squeeze(0) * mask
+
+        if mask is not None:
+            action *= mask
+            log_prob *= mask
+
+        return action, log_prob
 
     def value(self, state, mask):
         state = utils.add_batch_dim(state)
