@@ -38,11 +38,12 @@ class PPOAgent:
         self.steps = 0
         self.mode = mode
 
-    def train_actor(self, state, action, adv, old_log_prob):
+    def train_actor(self, state, action, adv, old_log_prob, mask):
         if self.mode < 2:
             self.model.actor.trainable = True
         self.model.critic.trainable = False
 
+        adv *= mask
         with tf.GradientTape() as tape:
             mean = self.model(state)[0]
             std = tf.exp(self.action_logstd)
@@ -76,13 +77,13 @@ class PPOAgent:
 
         return loss
 
-    def train_critic(self, state, reward):
+    def train_critic(self, state, reward, mask):
         self.model.actor.trainable = False
         self.model.critic.trainable = True
 
         with tf.GradientTape() as tape:
             _, values = self.model(state)
-            loss = tf.keras.losses.mse(reward, values)
+            loss = tf.keras.losses.mse(reward * mask, values * mask)
 
         grads = tape.gradient(loss, self.model.trainable_variables)
         self.critic_optim.apply_gradients(zip(grads, self.model.trainable_variables))
@@ -99,7 +100,7 @@ class PPOAgent:
 
     def update(self, batch_size, actor_steps=ACTOR_UPDATE_STEPS, critic_steps=CRITIC_UPDATE_STEPS):
         self.steps += 1
-        states, actions, rewards_to_go, old_log_probs = self.rollout_buffer.get_buffer(
+        states, actions, rewards_to_go, old_log_probs, masks = self.rollout_buffer.get_buffer(
             batch_size)
 
         values = self.model(states)[1]
@@ -107,11 +108,11 @@ class PPOAgent:
 
         actor_loss = 0
         for _ in range(actor_steps):
-            actor_loss += self.train_actor(states, actions, adv, old_log_probs)
+            actor_loss += self.train_actor(states, actions, adv, old_log_probs, masks)
 
         critic_loss = 0
         for _ in range(critic_steps):
-            critic_loss += self.train_critic(states, rewards_to_go)
+            critic_loss += self.train_critic(states, rewards_to_go, masks)
 
         if self.summary_writer is not None:
             critic_loss = tf.reduce_mean(critic_loss)
@@ -161,7 +162,7 @@ class PPOAgent:
         return value.numpy().squeeze(0) * mask
 
     def store_transition(self, state, action, reward, log_prob, next_state, done, mask):
-        self.rollout_buffer.add_transition(state, action, reward, log_prob)
+        self.rollout_buffer.add_transition(state, action, reward, log_prob, mask)
         if self.rollout_buffer.path_end():
             self.finish_rollout(next_state, done, mask)
 
