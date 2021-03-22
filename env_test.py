@@ -4,6 +4,7 @@ from swarms.rl_extensions.envs import BoidSphereEnv2D
 
 DT = 0.3
 
+
 def get_original_action(env):
     acc = []
     for agent in env._env.population:
@@ -21,7 +22,7 @@ def combine_env_states(agent_states, obstacle_states, goal_states):
 
 def main():
 
-    env = BoidSphereEnv2D(5, 1, 1, DT)
+    env = BoidSphereEnv2D(5, 1, DT)
 
     state = env.reset()
     sequence = [combine_env_states(*state)]

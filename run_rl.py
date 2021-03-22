@@ -89,7 +89,7 @@ def train(agent, value_only=False):
         edge_types = one_hot(edges, EDGE_TYPES)
         padded_edge_types = utils.pad_data(edge_types, MAX_NUM_NODES, dims=[0, 1])
 
-        env = BoidSphereEnv2D(num_boids, num_spheres, NUM_GOALS, DT,
+        env = BoidSphereEnv2D(num_boids, num_spheres, DT,
                               boid_size=BOID_SIZE, sphere_size=SPHERE_SIZE)
         state = env.reset()  # When seed is provided, env is essentially fixed.
         state = utils.combine_env_states(*state)  # Shape [1, NUM_GOALS+num_spahers+num_boids, 4]
@@ -157,7 +157,7 @@ def test(agent):
     num_boids = np.random.randint(MIN_NUM_BOIDS, MAX_NUM_BOIDS + 1)
     num_spheres = np.random.randint(MIN_NUM_SPHERES, MAX_NUM_SPHERES + 1)
 
-    env = BoidSphereEnv2D(num_boids, num_spheres, NUM_GOALS, DT,
+    env = BoidSphereEnv2D(num_boids, num_spheres, DT,
                           boid_size=BOID_SIZE, sphere_size=SPHERE_SIZE)
 
     edges = utils.system_edges(NUM_GOALS, num_spheres, num_boids)
